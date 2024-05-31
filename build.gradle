@@ -1,0 +1,57 @@
+/**
+*   This file was generated automatically by the 'createModuleBuild' task.
+*   Created at: 2024-05-31T14:14:44.749720Z.
+*
+*   WARNING: Do not put your credentials directly in this file.
+*
+*/
+
+group          = "com.etendoerp"
+version        = "1.0.0"
+description    = "Module to add docker container utils to easy contained manage"
+ext.artifact   = "docker"
+ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
+
+configurations {
+    moduleDependencyContainer
+}
+
+publishing {
+    publications {
+        "com.etendoerp.docker"(MavenPublication) {
+            from components.java
+            groupId    = group
+            artifactId = artifact
+            version    = version
+        }
+    }
+    repositories {
+        maven {
+            url "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        url "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
+    }
+    maven {
+        url "https://repo.futit.cloud/repository/maven-releases"
+    }
+    maven {
+        url "https://repo.futit.cloud/repository/maven-public-releases"
+    }
+    maven {
+        url "https://repo.futit.cloud/repository/maven-public-jars"
+    }
+}
+
+/**
+* Declare Java dependencies using 'implementation'
+* Ex: implementation "com.sun.mail:javax.mail:1.6.2"
+*/
+dependencies {
+
+}
