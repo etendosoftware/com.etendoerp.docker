@@ -1,0 +1,94 @@
+
+task copyComposeFiles {
+    description = 'Finds all Docker Compose YAML files and copies them to build/compose'
+    group = 'Docker'
+
+    doLast {
+        // Ensure the destination directory exists
+        def destDir = file("$buildDir/compose")
+        if (!destDir.exists()) {
+            destDir.mkdirs()
+        }
+
+        // Find all Docker Compose YAML files and copy them
+        fileTree(dir: 'modules', include: '**/compose/*.yml').each { file ->
+            println "Copying Docker Compose file: $file"
+            copy {
+                from file
+                into destDir
+            }
+        }
+    }
+}
+
+task 'resources.up' {
+    description = 'Runs docker compose to bring up the Docker services'
+    group = 'Docker'
+    dependsOn copyComposeFiles
+
+    doLast {
+        def composeFiles = fileTree(dir: "$buildDir/compose", include: '*.yml').files
+        if (composeFiles.empty) {
+            throw new GradleException("No Docker Compose files found in build/compose")
+        }
+
+        def command = ['docker', 'compose']
+        composeFiles.each { file ->
+            command << '-f' << file.absolutePath
+        }
+        command << 'up' << '-d'
+
+        println "Running: $command"
+        exec {
+            commandLine command
+        }
+    }
+}
+
+task 'resources.down' {
+    description = 'Runs docker compose to bring down the Docker services'
+    group = 'Docker'
+    dependsOn copyComposeFiles
+
+    doLast {
+        def composeFiles = fileTree(dir: "$buildDir/compose", include: '*.yml').files
+        if (composeFiles.empty) {
+            throw new GradleException("No Docker Compose files found in build/compose")
+        }
+
+        def command = ['docker', 'compose']
+        composeFiles.each { file ->
+            command << '-f' << file.absolutePath
+        }
+        command << 'down'
+
+        println "Running: $command"
+        exec {
+            commandLine command
+        }
+    }
+}
+
+task 'resources.stop' {
+    description = 'Runs docker compose to stop the Docker services'
+    group = 'Docker'
+    dependsOn copyComposeFiles
+
+    doLast {
+        def composeFiles = fileTree(dir: "$buildDir/compose", include: '*.yml').files
+        if (composeFiles.empty) {
+            throw new GradleException("No Docker Compose files found in build/compose")
+        }
+
+        def command = ['docker', 'compose']
+        composeFiles.each { file ->
+            command << '-f' << file.absolutePath
+        }
+        command << 'stop'
+
+        println "Running: $command"
+        exec {
+            commandLine command
+        }
+    }
+}

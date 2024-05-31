@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: syspass
+      POSTGRES_DB: etendo
+    ports:
+      - "5432:5432"
+    networks:
+      - etendo
+    volumes:
+      - ./volumes/db:/var/lib/postgresql/data
