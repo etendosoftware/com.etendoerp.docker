@@ -3,15 +3,15 @@ services:
     env_file: ".env"
     image: postgres:14
     environment:
-      POSTGRES_USER: ${BBDD_SYSTEMUSER}
-      POSTGRES_PASSWORD: ${BBDD_SYSTEMPASSWORD}
+      POSTGRES_USER: ${BBDD_SYSTEM_USER}
+      POSTGRES_PASSWORD: ${BBDD_SYSTEM_PASSWORD}
       POSTGRES_DB: ${BBDD_SID}
     ports:
       - "${BBDD_PORT}:5432"
     networks:
       - etendo
     volumes:
-      - ./volumes/db:/var/lib/postgresql/data
+      - ${VOLUMES_PATH}/db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 30s
