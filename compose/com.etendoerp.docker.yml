@@ -1,12 +1,13 @@
 services:
   db:
+    env_file: ".env"
     image: postgres:14
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: syspass
-      POSTGRES_DB: etendo
+      POSTGRES_USER: ${BBDD_SYSTEMUSER}
+      POSTGRES_PASSWORD: ${BBDD_SYSTEMPASSWORD}
+      POSTGRES_DB: ${BBDD_SID}
     ports:
-      - "5432:5432"
+      - "${BBDD_PORT}:5432"
     networks:
       - etendo
     volumes:
