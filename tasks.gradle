@@ -25,7 +25,7 @@ task generateEnvFile {
 
         envFile.withWriter { writer ->
             properties.each { key, value ->
-                def envKey = key.toString().toUpperCase().replace('.', '_')
+                def envKey = key.replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase().replace('.', '_')
                 writer.write("${envKey}=${value}\n")
             }
         }
