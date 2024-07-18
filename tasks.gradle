@@ -1,13 +1,42 @@
-plugins {
-    id 'base'
-}
 
-def composeDir = "$buildDir/compose"
-def composeFilesPattern = '**/compose/*.yml'
+ext.composeDir = "$buildDir/compose"
+ext.composeFilesPattern = '**/compose/*.yml'
+
+task generateEnvFile {
+    description = 'Converts gradle.properties configurations into a .env file in build/compose/.env'
+    group = 'Docker'
+
+    doLast {
+        def propertiesFile = file('gradle.properties')
+        def envFile = file("$composeDir/.env")
+
+        if (!propertiesFile.exists()) {
+            throw new GradleException("gradle.properties file not found")
+        }
+
+        def properties = new Properties()
+        propertiesFile.withInputStream { input ->
+            properties.load(input)
+        }
+
+        if (!envFile.parentFile.exists()) {
+            envFile.parentFile.mkdirs()
+        }
+
+        envFile.withWriter { writer ->
+            properties.each { key, value ->
+                def envKey = key.toString().toUpperCase().replace('.', '_')
+                writer.write("${envKey}=${value}\n")
+            }
+        }
+        println "Generated .env file at: $envFile"
+    }
+}
 
 task copyComposeFiles {
     description = 'Finds all Docker Compose YAML files and copies them to build/compose'
     group = 'Docker'
+    dependsOn 'generateEnvFile'
 
     doLast {
         def destDir = file(composeDir)
@@ -25,7 +54,7 @@ task copyComposeFiles {
     }
 }
 
-def executeDockerComposeCommand(action) {
+def executeDockerComposeCommand(String action) {
     def composeFiles = fileTree(dir: composeDir, include: '*.yml').files
     if (composeFiles.empty) {
         throw new GradleException("No Docker Compose files found in $composeDir")
@@ -35,7 +64,9 @@ def executeDockerComposeCommand(action) {
     composeFiles.each { file ->
         command << '-f' << file.absolutePath
     }
-    command << action
+    action.split(" ").each { arg ->
+        command << arg
+    }
 
     println "Running: $command"
     exec {
