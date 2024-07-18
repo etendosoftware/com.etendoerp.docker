@@ -1,4 +1,3 @@
-
 ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
 
@@ -23,11 +22,18 @@ task generateEnvFile {
             envFile.parentFile.mkdirs()
         }
 
+        def volumesPathKey = 'volumes.path'
         envFile.withWriter { writer ->
             properties.each { key, value ->
-                def envKey = key.replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase().replace('.', '_')
+                if (key == volumesPathKey) {
+                    return
+                }
+                def envKey = key.toString().replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase().replace('.', '_')
                 writer.write("${envKey}=${value}\n")
             }
+            def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
+            writer.write("VOLUMES_PATH=${volumesPath}\n")
+            new File(volumesPath).mkdirs()
         }
         println "Generated .env file at: $envFile"
     }
