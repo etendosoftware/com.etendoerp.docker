@@ -1,29 +1,32 @@
 ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
+def propertiesFile = 'gradle.properties'
+
+ext.envFile = { ->
+    def envFile = file("$composeDir/.env")
+    if (!envFile.parentFile.exists()) {
+        envFile.parentFile.mkdirs()
+    }
+    if (!file(propertiesFile).exists()) {
+        throw new GradleException("gradle.properties file not found")
+    }
+    def properties = new Properties()
+    file(propertiesFile).withInputStream { input ->
+        properties.load(input)
+    }
+    return [properties: properties, envFile: envFile]
+}
 
 task generateEnvFile {
     description = 'Converts gradle.properties configurations into a .env file in build/compose/.env'
     group = 'Docker'
 
     doLast {
-        def propertiesFile = file('gradle.properties')
-        def envFile = file("$composeDir/.env")
-
-        if (!propertiesFile.exists()) {
-            throw new GradleException("gradle.properties file not found")
-        }
-
-        def properties = new Properties()
-        propertiesFile.withInputStream { input ->
-            properties.load(input)
-        }
-
-        if (!envFile.parentFile.exists()) {
-            envFile.parentFile.mkdirs()
-        }
-
         def volumesPathKey = 'volumes.path'
-        envFile.withWriter { writer ->
+        def props = envFile()
+        def env = props.envFile
+        def properties = props.properties
+        env.withWriter { writer ->
             properties.each { key, value ->
                 if (key == volumesPathKey) {
                     return
@@ -35,7 +38,7 @@ task generateEnvFile {
             writer.write("VOLUMES_PATH=${volumesPath}\n")
             new File(volumesPath).mkdirs()
         }
-        println "Generated .env file at: $envFile"
+        println "Generated .env file at: $env"
     }
 }
 
