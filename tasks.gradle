@@ -52,14 +52,19 @@ task copyComposeFiles {
         if (!destDir.exists()) {
             destDir.mkdirs()
         }
-
-        fileTree(dir: 'modules', include: composeFilesPattern).each { file ->
-            println "Copying Docker Compose file: $file"
-            copy {
-                from file
-                into destDir
+        def dirs = ['modules', "${buildDir}/etendo/modules"]
+        dirs.each { dir ->
+            {
+                fileTree(dir: dir, include: composeFilesPattern).each { file ->
+                    println "Copying Docker Compose file: $file"
+                    copy {
+                        from file
+                        into destDir
+                    }
+                }
             }
         }
+
     }
 }
 
