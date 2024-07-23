@@ -39,7 +39,7 @@ task generateEnvFile {
             }
             def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
             writer.write("VOLUMES_PATH=${volumesPath}\n")
-            if(isBBDDEnabled) {
+            if (isBBDDEnabled) {
                 writer.write("DOCKER_BBDD_PROFILE=default\n")
             } else {
                 writer.write("DOCKER_BBDD_PROFILE=disabled\n")
@@ -76,13 +76,8 @@ task copyComposeFiles {
             }
         }
 
-        destDir.eachFile { file ->
-            if(!file.name.endsWith(".yml"))
-                return
-            //
-            def content = file.text
-            content = content.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat": "host.docker.internal")
-            file.text = content
+        destDir.eachFileMatch(~/.*\.yml/) { file ->
+            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
         }
 
     }
