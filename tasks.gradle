@@ -2,6 +2,9 @@ ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
 
+ext.isBBDDEnabled = project.hasProperty("docker.bbdd.enabled") ? project.property("docker.bbdd.enabled").toString() : "true"
+ext.isTomcatEnabled = false
+
 ext.envFile = { ->
     def envFile = file("$composeDir/.env")
     if (!envFile.parentFile.exists()) {
@@ -36,6 +39,11 @@ task generateEnvFile {
             }
             def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
             writer.write("VOLUMES_PATH=${volumesPath}\n")
+            if(isBBDDEnabled) {
+                writer.write("DOCKER_BBDD_PROFILE=default\n")
+            } else {
+                writer.write("DOCKER_BBDD_PROFILE=disabled\n")
+            }
             new File(volumesPath).mkdirs()
         }
         println "Generated .env file at: $env"
@@ -52,14 +60,31 @@ task copyComposeFiles {
         if (!destDir.exists()) {
             destDir.mkdirs()
         }
-
-        fileTree(dir: 'modules', include: composeFilesPattern).each { file ->
-            println "Copying Docker Compose file: $file"
-            copy {
-                from file
-                into destDir
+        def dirs = ['modules', "${buildDir}/etendo/modules"]
+        dirs.each { dir ->
+            {
+                fileTree(dir: dir, include: composeFilesPattern).each { file ->
+                    println "Copying Docker Compose file: $file"
+                    copy {
+                        from file
+                        into destDir
+                    }
+                    if (file.name.contains("com.etendoerp.tomcat")) {
+                        isTomcatEnabled = true
+                    }
+                }
             }
         }
+
+        destDir.eachFile { file ->
+            if(!file.name.endsWith(".yml"))
+                return
+            //
+            def content = file.text
+            content = content.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat": "host.docker.internal")
+            file.text = content
+        }
+
     }
 }
 
@@ -69,7 +94,7 @@ def executeDockerComposeCommand(String action) {
         throw new GradleException("No Docker Compose files found in $composeDir")
     }
 
-    def command = ['docker', 'compose']
+    def command = ['docker', 'compose', "--profile", "default"]
     composeFiles.each { file ->
         command << '-f' << file.absolutePath
     }
