@@ -7,7 +7,7 @@
 */
 
 group          = "com.etendoerp"
-version        = "1.0.0"
+version        = "1.0.0-SNAPSHOT"
 description    = "Module to add docker container utils to easy contained manage"
 ext.artifact   = "docker"
 ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
@@ -27,7 +27,7 @@ publishing {
     }
     repositories {
         maven {
-            url "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
+            url "https://repo.futit.cloud/repository/maven-snapshots"
         }
     }
 }
@@ -54,4 +54,12 @@ repositories {
 */
 dependencies {
 
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs("compose")
+        }
+    }
 }
