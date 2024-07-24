@@ -2,8 +2,8 @@ ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
 
-ext.isBBDDEnabled = project.hasProperty("docker.bbdd.enabled") ? project.property("docker.bbdd.enabled").toString() : "true"
-ext.isTomcatEnabled = false
+ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toString() : "false"
+ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toString() : "false"
 
 ext.envFile = { ->
     def envFile = file("$composeDir/.env")
@@ -59,18 +59,29 @@ task copyComposeFiles {
         def destDir = file(composeDir)
         if (!destDir.exists()) {
             destDir.mkdirs()
+        } else {
+            destDir.eachFile { file ->
+                if(file.name.endsWith(".yml")) {
+                    file.delete()
+                }
+            }
         }
+        destDir.mkdirs()
         def dirs = ['modules', "${buildDir}/etendo/modules"]
         dirs.each { dir ->
             {
                 fileTree(dir: dir, include: composeFilesPattern).each { file ->
-                    println "Copying Docker Compose file: $file"
-                    copy {
-                        from file
-                        into destDir
-                    }
-                    if (file.name.contains("com.etendoerp.tomcat")) {
-                        isTomcatEnabled = true
+                    def module = file.name.replaceFirst(/.yml/, '')
+                    if(file.name == "docker-compose.yml" ||
+                            (project.hasProperty("docker_" + module) &&
+                            project.property("docker_" + module) == "true")) {
+                        println "Using Docker Compose file: $file"
+                        copy {
+                            from file
+                            into destDir
+                        }
+                    } else {
+                        println "Skipping Docker Compose file: $file"
                     }
                 }
             }
@@ -85,8 +96,8 @@ task copyComposeFiles {
 
 def executeDockerComposeCommand(String action) {
     def composeFiles = fileTree(dir: composeDir, include: '*.yml').files
-    if (composeFiles.empty) {
-        throw new GradleException("No Docker Compose files found in $composeDir")
+    if (composeFiles.size() <= 1) {
+        throw new GradleException("Currently, there are no Docker-enabled resources available.")
     }
 
     def command = ['docker', 'compose', "--profile", "default"]
