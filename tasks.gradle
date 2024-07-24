@@ -2,6 +2,9 @@ ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
 
+ext.isBBDDEnabled = project.hasProperty("docker.bbdd.enabled") ? project.property("docker.bbdd.enabled").toString() : "true"
+ext.isTomcatEnabled = false
+
 ext.envFile = { ->
     def envFile = file("$composeDir/.env")
     if (!envFile.parentFile.exists()) {
@@ -36,6 +39,11 @@ task generateEnvFile {
             }
             def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
             writer.write("VOLUMES_PATH=${volumesPath}\n")
+            if (isBBDDEnabled) {
+                writer.write("DOCKER_BBDD_PROFILE=default\n")
+            } else {
+                writer.write("DOCKER_BBDD_PROFILE=disabled\n")
+            }
             new File(volumesPath).mkdirs()
         }
         println "Generated .env file at: $env"
@@ -61,8 +69,15 @@ task copyComposeFiles {
                         from file
                         into destDir
                     }
+                    if (file.name.contains("com.etendoerp.tomcat")) {
+                        isTomcatEnabled = true
+                    }
                 }
             }
+        }
+
+        destDir.eachFileMatch(~/.*\.yml/) { file ->
+            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
         }
 
     }
@@ -74,7 +89,7 @@ def executeDockerComposeCommand(String action) {
         throw new GradleException("No Docker Compose files found in $composeDir")
     }
 
-    def command = ['docker', 'compose']
+    def command = ['docker', 'compose', "--profile", "default"]
     composeFiles.each { file ->
         command << '-f' << file.absolutePath
     }
