@@ -2,8 +2,8 @@ ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
 
-ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toString() : "false"
-ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toString() : "false"
+ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toBoolean() : false
+ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toBoolean() : false
 
 ext.envFile = { ->
     def envFile = file("$composeDir/.env")
