@@ -1,4 +1,3 @@
-version: '3.8'
-name: etendo
+name: {CONTEXT_NAME}
 networks:
   etendo:

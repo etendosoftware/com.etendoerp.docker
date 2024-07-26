@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     env_file: ".env"
@@ -7,7 +5,7 @@ services:
     environment:
       POSTGRES_USER: ${BBDD_SYSTEM_USER}
       POSTGRES_PASSWORD: ${BBDD_SYSTEM_PASSWORD}
-      POSTGRES_DB: ${BBDD_SID}
+      POSTGRES_DB: postgres
     ports:
       - "${BBDD_PORT}:5432"
     networks:
