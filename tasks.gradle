@@ -1,94 +1,156 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
+ext.composeDir = "$buildDir/compose"
+ext.composeFilesPattern = '**/compose/*.yml'
+def propertiesFile = 'gradle.properties'
+
+ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toBoolean() : false
+ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toBoolean() : false
+
+ext.envFile = { ->
+    def envFile = file("$composeDir/.env")
+    if (!envFile.parentFile.exists()) {
+        envFile.parentFile.mkdirs()
+    }
+    if (!file(propertiesFile).exists()) {
+        throw new GradleException("gradle.properties file not found")
+    }
+    def properties = new Properties()
+    file(propertiesFile).withInputStream { input ->
+        properties.load(input)
+    }
+    return [properties: properties, envFile: envFile]
+}
+
+task generateEnvFile {
+    description = 'Converts gradle.properties configurations into a .env file in build/compose/.env'
+    group = 'Docker'
+
+    doLast {
+        def volumesPathKey = 'volumes.path'
+        def props = envFile()
+        def env = props.envFile
+        def properties = props.properties
+        env.withWriter { writer ->
+            properties.each { key, value ->
+                if (key == volumesPathKey) {
+                    return
+                }
+                def envKey = key.toString().replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase().replace('.', '_')
+                writer.write("${envKey}=${value}\n")
+            }
+            def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
+            writer.write("VOLUMES_PATH=${volumesPath}\n")
+            if (isBBDDEnabled) {
+                writer.write("DOCKER_BBDD_PROFILE=default\n")
+            } else {
+                writer.write("DOCKER_BBDD_PROFILE=disabled\n")
+            }
+            new File(volumesPath).mkdirs()
+        }
+        println "Generated .env file at: $env"
+    }
+}
 
 task copyComposeFiles {
     description = 'Finds all Docker Compose YAML files and copies them to build/compose'
     group = 'Docker'
+    dependsOn 'generateEnvFile'
 
     doLast {
-        // Ensure the destination directory exists
-        def destDir = file("$buildDir/compose")
+        def destDir = file(composeDir)
         if (!destDir.exists()) {
             destDir.mkdirs()
-        }
-
-        // Find all Docker Compose YAML files and copy them
-        fileTree(dir: 'modules', include: '**/compose/*.yml').each { file ->
-            println "Copying Docker Compose file: $file"
-            copy {
-                from file
-                into destDir
+        } else {
+            destDir.eachFile { file ->
+                if(file.name.endsWith(".yml")) {
+                    file.delete()
+                }
             }
         }
+        destDir.mkdirs()
+        def dirs = ['modules', "${buildDir}/etendo/modules"]
+        dirs.each { dir ->
+            {
+                fileTree(dir: dir, include: composeFilesPattern).each { file ->
+                    def module = file.name.replaceFirst(/.yml/, '')
+                    if(file.name == "docker-compose.yml" ||
+                            (project.hasProperty("docker_" + module) &&
+                            project.property("docker_" + module) == "true")) {
+                        println "Using Docker Compose file: $file"
+                        copy {
+                            from file
+                            into destDir
+                        }
+                    } else {
+                        println "Skipping Docker Compose file: $file"
+                    }
+                }
+            }
+        }
+
+        destDir.eachFileMatch(~/.*\.yml/) { file ->
+            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
+            file.text = file.text.replace('{CONTEXT_NAME}', project.property("context.name").toString())
+        }
+
     }
 }
 
-task 'resources.up' {
+ext.executeDockerComposeCommand = { String action ->
+    def composeFiles = fileTree(dir: composeDir, include: '*.yml').files
+    if (composeFiles.size() <= 1) {
+        throw new GradleException("Currently, there are no Docker-enabled resources available.")
+    }
+
+    def command = ['docker', 'compose', "--profile", "default"]
+    composeFiles.each { file ->
+        command << '-f' << file.absolutePath
+    }
+    action.split(" ").each { arg ->
+        command << arg
+    }
+
+    println "Running: $command"
+    def os_cmd = []
+    if(Os.isFamily(Os.FAMILY_WINDOWS)) {
+        os_cmd = ['cmd', '/c'] + command
+    } else {
+        def lastCommandFile = file("$composeDir/.last-command")
+        lastCommandFile.text = command.join(' ')
+        os_cmd = ['sh', "$composeDir/.last-command"]
+    }
+    exec {
+        commandLine os_cmd
+    }
+}
+
+task "resources.up" {
     description = 'Runs docker compose to bring up the Docker services'
     group = 'Docker'
     dependsOn copyComposeFiles
 
     doLast {
-        def composeFiles = fileTree(dir: "$buildDir/compose", include: '*.yml').files
-        if (composeFiles.empty) {
-            throw new GradleException("No Docker Compose files found in build/compose")
-        }
-
-        def command = ['docker', 'compose']
-        composeFiles.each { file ->
-            command << '-f' << file.absolutePath
-        }
-        command << 'up' << '-d'
-
-        println "Running: $command"
-        exec {
-            commandLine command
-        }
+        executeDockerComposeCommand('up -d')
     }
 }
 
-task 'resources.down' {
+task "resources.down" {
     description = 'Runs docker compose to bring down the Docker services'
     group = 'Docker'
     dependsOn copyComposeFiles
 
     doLast {
-        def composeFiles = fileTree(dir: "$buildDir/compose", include: '*.yml').files
-        if (composeFiles.empty) {
-            throw new GradleException("No Docker Compose files found in build/compose")
-        }
-
-        def command = ['docker', 'compose']
-        composeFiles.each { file ->
-            command << '-f' << file.absolutePath
-        }
-        command << 'down'
-
-        println "Running: $command"
-        exec {
-            commandLine command
-        }
+        executeDockerComposeCommand('down')
     }
 }
 
-task 'resources.stop' {
+task "resources.stop" {
     description = 'Runs docker compose to stop the Docker services'
     group = 'Docker'
     dependsOn copyComposeFiles
 
     doLast {
-        def composeFiles = fileTree(dir: "$buildDir/compose", include: '*.yml').files
-        if (composeFiles.empty) {
-            throw new GradleException("No Docker Compose files found in build/compose")
-        }
-
-        def command = ['docker', 'compose']
-        composeFiles.each { file ->
-            command << '-f' << file.absolutePath
-        }
-        command << 'stop'
-
-        println "Running: $command"
-        exec {
-            commandLine command
-        }
+        executeDockerComposeCommand('stop')
     }
 }

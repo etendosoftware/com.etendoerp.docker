@@ -1,0 +1,21 @@
+services:
+  db:
+    env_file: ".env"
+    image: postgres:14
+    environment:
+      POSTGRES_USER: ${BBDD_SYSTEM_USER}
+      POSTGRES_PASSWORD: ${BBDD_SYSTEM_PASSWORD}
+      POSTGRES_DB: postgres
+    ports:
+      - "${BBDD_PORT}:5432"
+    networks:
+      - etendo
+    volumes:
+      - ${VOLUMES_PATH}/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles:
+      - ${DOCKER_BBDD_PROFILE:-default}
