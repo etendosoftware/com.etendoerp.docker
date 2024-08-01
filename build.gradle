@@ -1,14 +1,14 @@
 /**
 *   This file was generated automatically by the 'createModuleBuild' task.
-*   Created at: 2024-05-31T14:14:44.749720Z.
+*   Created at: 2024-08-01T20:01:02.837439Z.
 *
 *   WARNING: Do not put your credentials directly in this file.
 *
 */
 
 group          = "com.etendoerp"
-version        = "0.0.3"
-description    = "Module to add docker container utils to easy contained manage"
+version        = "1.1.0"
+description    = "This module provides the infrastructure to distribute and manage Docker containers within the Etendo Classic environment, using a standardized method and Gradle tasks"
 ext.artifact   = "docker"
 ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
 
@@ -37,14 +37,13 @@ repositories {
     maven {
         url "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
     }
-    maven {
-        url "https://repo.futit.cloud/repository/maven-releases"
-    }
-    maven {
-        url "https://repo.futit.cloud/repository/maven-public-releases"
-    }
-    maven {
-        url "https://repo.futit.cloud/repository/maven-public-jars"
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs("etendo-resources")
+        }
     }
 }
 
@@ -54,12 +53,4 @@ repositories {
 */
 dependencies {
 
-}
-
-sourceSets {
-    main {
-        resources {
-            srcDirs("compose")
-        }
-    }
 }
