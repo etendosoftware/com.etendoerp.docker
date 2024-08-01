@@ -1,3 +1,5 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
 ext.composeDir = "$buildDir/compose"
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
@@ -89,12 +91,13 @@ task copyComposeFiles {
 
         destDir.eachFileMatch(~/.*\.yml/) { file ->
             file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
+            file.text = file.text.replace('{CONTEXT_NAME}', project.property("context.name").toString())
         }
 
     }
 }
 
-def executeDockerComposeCommand(String action) {
+ext.executeDockerComposeCommand = { String action ->
     def composeFiles = fileTree(dir: composeDir, include: '*.yml').files
     if (composeFiles.size() <= 1) {
         throw new GradleException("Currently, there are no Docker-enabled resources available.")
@@ -109,8 +112,16 @@ def executeDockerComposeCommand(String action) {
     }
 
     println "Running: $command"
+    def os_cmd = []
+    if(Os.isFamily(Os.FAMILY_WINDOWS)) {
+        os_cmd = ['cmd', '/c'] + command
+    } else {
+        def lastCommandFile = file("$composeDir/.last-command")
+        lastCommandFile.text = command.join(' ')
+        os_cmd = ['sh', "$composeDir/.last-command"]
+    }
     exec {
-        commandLine command
+        commandLine os_cmd
     }
 }
 
