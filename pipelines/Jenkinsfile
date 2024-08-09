@@ -16,15 +16,23 @@ pipeline {
     NEXUS_PASSWORD  = credentials('nexus-admin-passwd')
     GITHUB_USER     = "etendobot"
     GITHUB_TOKEN    = credentials('github-read-package-token')
+    ACCESS_TOKEN    = credentials('access_token_github')
     EMAIL_ADDRESS   = credentials('email_builds')
+    CONTEXT_BUILD   = "Module Tests"
 
-    ETENDO_BASE_URL = "https://github.com/etendosoftware/etendo_base"
+    ETENDO_BASE_URL   = "https://github.com/etendosoftware/etendo_base"
+    DOCKER_MODULE_URL = "https://github.com/etendosoftware/com.etendoerp.docker.git"
 
     JAVA_HOME       = "/usr/lib/jvm/java-11-openjdk-amd64"
+    MODULE_PACKAGE  = "com.etendoerp.docker"
 
-    SUCCESS         = "SUCCESS"
-    FAILED          = "FAILED"
-    UNSTABLE        = "UNSTABLE"
+    COMMIT_INPROGRESS_STATUS = "pending"
+    COMMIT_SUCCESS_STATUS    = "success"
+    COMMIT_FAILED_STATUS     = "failure"
+
+    SUCCESS  = "SUCCESS"
+    FAILED   = "FAILED"
+    UNSTABLE = "UNSTABLE"
   }
 
   agent {
@@ -99,7 +107,7 @@ spec:
       steps {
         container('compiler') {
           script {
-            sh './utils/repo-update-scripts/build-update-github.sh com.etendoerp.docker pending "Starting build" $ACCESS_TOKEN $CORE_GIT_COMMIT $BUILD_URL \"${CONTEXT_BUILD}\"'
+            sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} "Starting build" $ACCESS_TOKEN $GIT_COMMIT $BUILD_URL ${CONTEXT_BUILD}'
             try {
               echo "---------------- Print environment ----------------"
               sh "printenv"
@@ -145,7 +153,7 @@ spec:
               cd etendo_base
               mkdir modules
               cd modules
-              git clone https://github.com/etendosoftware/com.etendoerp.docker.git
+              git clone ${DOCKER_MODULE_URL}
               cd com.etendoerp.docker
               git checkout ${GIT_COMMIT}
               cd ../..
@@ -195,7 +203,7 @@ spec:
     success {
       container('compiler') {
         script {
-          sh './utils/repo-update-scripts/build-update-github.sh com.etendoerp.docker success "Successful Bundles Test" $ACCESS_TOKEN $CORE_GIT_COMMIT $BUILD_URL \"${CONTEXT_BUILD}\"'
+          sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_SUCCESS_STATUS} "Successful Docker Test" $ACCESS_TOKEN ${GIT_COMMIT} $BUILD_URL \"${CONTEXT_BUILD}\"'
         }
       }
     }
@@ -203,7 +211,7 @@ spec:
     fixed {
       container('compiler') {
         script {
-          sh './utils/repo-update-scripts/build-update-github.sh com.etendoerp.docker success "Successful Bundles Test" $ACCESS_TOKEN $CORE_GIT_COMMIT $BUILD_URL \"${CONTEXT_BUILD}\"'
+          sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_SUCCESS_STATUS} "Successful Docker Test" $ACCESS_TOKEN ${GIT_COMMIT} $BUILD_URL \"${CONTEXT_BUILD}\"'
         }
       }
       mail to: EMAIL_ADDRESS,
@@ -214,7 +222,7 @@ __________________________________________________________
 
 ✅ ERRORS FIXED ✅
 
-This is a compatibility test of etendo_base execution with all installed bundles.
+This is a pipeline to testing ${MODULE_PACKAGE} module.
 
 The problems found in the previous run/s have been fixed!  💪
 Check out the output in the following link: 
@@ -225,7 +233,7 @@ __________________________________________________________
     failure {
       container('compiler') {
         script {
-          sh './utils/repo-update-scripts/build-update-github.sh com.etendoerp.docker failure "Build Failed" $ACCESS_TOKEN $CORE_GIT_COMMIT $BUILD_URL \"${CONTEXT_BUILD}\"'
+          sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_FAILED_STATUS} "Build Failed" $ACCESS_TOKEN ${GIT_COMMIT} $BUILD_URL \"${CONTEXT_BUILD}\"'
         }
       }
       mail to: EMAIL_ADDRESS,
@@ -236,9 +244,9 @@ __________________________________________________________
 
 🚫 BUILD FAILED 🚫
 
-This is a compatibility test of etendo_base execution with all installed bundles.
+This is a pipeline to testing ${MODULE_PACKAGE} module.
 
-The build has failed unexpectedly.
+The execution has failed unexpectedly.
 To more information on the failing run visit: ${env.BUILD_URL}
 
 __________________________________________________________
