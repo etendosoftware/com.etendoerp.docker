@@ -1,7 +1,6 @@
 pipeline {
   options {
     disableConcurrentBuilds()
-    buildDiscarder(logRotator(numToKeepStr: '7', artifactNumToKeepStr: '7'))
   }
 
   environment {
@@ -20,8 +19,11 @@ pipeline {
     EMAIL_ADDRESS   = credentials('email_builds')
     CONTEXT_BUILD   = "Module Tests"
 
+    COMMIT_AUTHOR_NAME  = sh(returnStdout: true, script: "git log -1 --pretty=format:'%an'").trim()
+    COMMIT_AUTHOR_EMAIL = sh(returnStdout: true, script: "git log -1 --pretty=format:'%ae'").trim()
+
     ETENDO_BASE_URL   = "https://github.com/etendosoftware/etendo_base"
-    DOCKER_MODULE_URL = "https://github.com/etendosoftware/com.etendoerp.docker.git"
+    DOCKER_MODULE_URL = "https://github.com/etendosoftware/com.etendoerp.docker"
 
     JAVA_HOME       = "/usr/lib/jvm/java-11-openjdk-amd64"
     MODULE_PACKAGE  = "com.etendoerp.docker"
@@ -107,7 +109,7 @@ spec:
       steps {
         container('compiler') {
           script {
-            sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} "Starting build" $ACCESS_TOKEN $GIT_COMMIT $BUILD_URL ${CONTEXT_BUILD}'
+            sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} "Starting build" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
             try {
               echo "---------------- Print environment ----------------"
               sh "printenv"
@@ -149,12 +151,13 @@ spec:
               """
               
               echo "---------------- Build & Compile ----------------"
+              sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} "Starting test stage" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
               sh """
               cd etendo_base
               mkdir modules
               cd modules
-              git clone ${DOCKER_MODULE_URL}
-              cd com.etendoerp.docker
+              git clone ${DOCKER_MODULE_URL}.git
+              cd ${MODULE_PACKAGE}
               git checkout ${GIT_COMMIT}
               cd ../..
               ./gradlew prepareConfig
@@ -163,7 +166,9 @@ spec:
               """
 
               echo "---------------- Verifying Docker Containers ----------------"
-              def dockerPsOutput = sh(script: 'docker ps', returnStdout: true)
+              sleep time: 15, unit: 'SECONDS'
+              def dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
               if (!dockerPsOutput.contains("etendo-db-1")) {
                 error("The etendo-db-1 container is not running")
               }
@@ -175,15 +180,24 @@ spec:
               ./gradlew resources.stop -Pcontext.name=${CONTEXT_NAME}
               """
               
+              sleep time: 15, unit: 'SECONDS'              
+              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
+              if (dockerPsOutput.contains("etendo-db-1") && !dockerPsOutput.contains("Exited")) {
+                error("The etendo-db-1 container still running")
+              }
+
               echo "---------------- Cleaning Docker Containers ----------------"
               sh """
               cd etendo_base
               ./gradlew resources.down -Pcontext.name=${CONTEXT_NAME}
               """
               
-              dockerPsOutput = sh(script: 'docker ps', returnStdout: true)
+              sleep time: 15, unit: 'SECONDS'              
+              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
               if (dockerPsOutput.contains("etendo-db-1")) {
-                error("The etendo-db-1 container still running")
+                error("The etendo-db-1 container still exists")
               }
 
               currentBuild.result = SUCCESS
@@ -203,53 +217,78 @@ spec:
     success {
       container('compiler') {
         script {
-          sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_SUCCESS_STATUS} "Successful Docker Test" $ACCESS_TOKEN ${GIT_COMMIT} $BUILD_URL \"${CONTEXT_BUILD}\"'
+          sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_SUCCESS_STATUS} "Successful Docker Test" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
         }
       }
     }
 
     fixed {
-      container('compiler') {
-        script {
-          sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_SUCCESS_STATUS} "Successful Docker Test" $ACCESS_TOKEN ${GIT_COMMIT} $BUILD_URL \"${CONTEXT_BUILD}\"'
-        }
-      }
       mail to: EMAIL_ADDRESS,
       subject: "✅ FIXED - ${currentBuild.fullDisplayName}",
+      mimeType: "text/html",
       body: """
-${new Date()}
-__________________________________________________________
+      <html>
+          <head>
+              <style>
+                  body { font-family: 'Arial', sans-serif; }
+                  .header { font-size: 16px; font-weight: bold; color: #333; }
+              </style>
+          </head>
+          <body>
+              <p><em>${new Date()}</em></p>
+              <p>__________________________________________________________</p>
 
-✅ ERRORS FIXED ✅
+              <h2 class="header">✅ ERRORS FIXED ✅</h2>
 
-This is a pipeline to testing ${MODULE_PACKAGE} module.
-
-The problems found in the previous run/s have been fixed!  💪
-Check out the output in the following link: 
-${env.BUILD_URL}
-__________________________________________________________
-        """
+              <p>
+                  <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
+                  <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
+              </p>
+              <p>
+                  The build has been fixed.<br />
+                  💡 This build was on the ${MODULE_PACKAGE} module.<br />
+                  For more information about the run, visit:<br />
+                  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
+              </p>
+              <p>__________________________________________________________</p>
+          </body>
+      </html>
+      """
     }
     failure {
       container('compiler') {
         script {
-          sh './utils/repo-update-scripts/build-update-github.sh ${MODULE_PACKAGE} ${COMMIT_FAILED_STATUS} "Build Failed" $ACCESS_TOKEN ${GIT_COMMIT} $BUILD_URL \"${CONTEXT_BUILD}\"'
+          sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_FAILED_STATUS} "Build Failed" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
         }
       }
       mail to: EMAIL_ADDRESS,
-      subject: "🚫 ERROR IN ${currentBuild.fullDisplayName}",
+      subject: "⛔ ERROR - ${currentBuild.fullDisplayName}",
+      mimeType: "text/html",
       body:  """
-${new Date()}
-__________________________________________________________
+      <html>
+          <head>
+              <style>
+                  body { font-family: 'Arial', sans-serif; }
+                  .header { font-size: 16px; font-weight: bold; color: #333; }
+              </style>
+          </head>
+          <body>
+              <p><em>${new Date()}</em></p>
+              <p>__________________________________________________________</p>
 
-🚫 BUILD FAILED 🚫
+              <h2 class="header">🚫 BUILD FAILED 🚫</h2>
 
-This is a pipeline to testing ${MODULE_PACKAGE} module.
-
-The execution has failed unexpectedly.
-To more information on the failing run visit: ${env.BUILD_URL}
-
-__________________________________________________________
+              <p>
+                  <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
+                  <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
+              </p>
+              <p>
+                  The build has failed unexpectedly.<br />
+                  💡 This build was on the ${MODULE_PACKAGE} module.<br />
+                  To more information on the failing run visit:<br />
+                  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
+              </p>
+      __________________________________________________________
       """
     }
   }
