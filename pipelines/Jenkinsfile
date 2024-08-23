@@ -1,0 +1,295 @@
+pipeline {
+  options {
+    disableConcurrentBuilds()
+  }
+
+  environment {
+    CONTEXT_NAME    = "etendo"
+    BBDD_SID        = "etendo"
+    BBDD_PORT       = "5432"
+    BBDD_SYSTEMUSER = "postgres"
+    BBDD_SYSTEMPASS = "syspass"
+    BBDD_USER       = "tad"
+    BBDD_PASSWORD   = "tad"
+    NEXUS_USER      = credentials('nexus-admin-user')
+    NEXUS_PASSWORD  = credentials('nexus-admin-passwd')
+    GITHUB_USER     = "etendobot"
+    GITHUB_TOKEN    = credentials('github-read-package-token')
+    ACCESS_TOKEN    = credentials('access_token_github')
+    EMAIL_ADDRESS   = credentials('email_builds')
+    CONTEXT_BUILD   = "Module Tests"
+
+    COMMIT_AUTHOR_NAME  = sh(returnStdout: true, script: "git log -1 --pretty=format:'%an'").trim()
+    COMMIT_AUTHOR_EMAIL = sh(returnStdout: true, script: "git log -1 --pretty=format:'%ae'").trim()
+
+    ETENDO_BASE_URL   = "https://github.com/etendosoftware/etendo_base"
+    DOCKER_MODULE_URL = "https://github.com/etendosoftware/com.etendoerp.docker"
+
+    JAVA_HOME       = "/usr/lib/jvm/java-11-openjdk-amd64"
+    MODULE_PACKAGE  = "com.etendoerp.docker"
+
+    COMMIT_INPROGRESS_STATUS = "pending"
+    COMMIT_SUCCESS_STATUS    = "success"
+    COMMIT_FAILED_STATUS     = "failure"
+
+    SUCCESS  = "SUCCESS"
+    FAILED   = "FAILED"
+    UNSTABLE = "UNSTABLE"
+  }
+
+  agent {
+    kubernetes {
+        inheritFrom 'jenkins-node-pg'
+        defaultContainer 'jnlp'
+        yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  name: jenkins-node-pg-0
+  namespace: jenkins
+  labels:
+    app.kubernetes.io/name: jenkins-node-pg
+spec:
+  volumes:
+    - name: rsa-keys
+      configMap:
+        name: rsa-keys
+        defaultMode: 384
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
+        type: ''
+  containers:
+    - name: compiler
+      image: etendo/compiler_jenkins:1.0.6
+      ports:
+        - name: ssh
+          containerPort: 22
+          protocol: TCP
+        - name: visualvm
+          containerPort: 8000
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 1072m
+          memory: 4000Mi
+        limits:
+          cpu: 2072m
+          memory: 6500Mi
+      volumeMounts:
+        - name: rsa-keys
+          mountPath: /root/.ssh/
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      lifecycle:
+        postStart:
+          exec:
+            command:
+              - bash
+              - '-c'
+              - >-
+                chmod a+x /var/run/docker.sock && rm
+                /etc/apt/sources.list.d/pgdg.list || echo 0 && apt update && apt
+                install -y curl
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      imagePullPolicy: IfNotPresent
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 30
+  dnsPolicy: ClusterFirst
+  serviceAccountName: default
+  serviceAccount: default
+  securityContext: {}
+  """
+    }
+  }
+
+  stages {
+    stage ('Build Enviroment') {
+      steps {
+        container('compiler') {
+          script {
+            sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} "Starting build" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
+            try {
+              echo "---------------- Print environment ----------------"
+              sh "printenv"
+
+              echo "--------------- Building Etendo environment ----------------"
+              sh """
+              git clone $ETENDO_BASE_URL
+              cd etendo_base
+
+              echo -e "context.name=${CONTEXT_NAME}
+              bbdd.sid=${BBDD_SID}
+              bbdd.port=${BBDD_PORT}
+              bbdd.systemUser=${BBDD_SYSTEMUSER}
+              bbdd.systemPassword=${BBDD_SYSTEMPASS}
+              bbdd.user=${BBDD_USER}
+              bbdd.password=${BBDD_PASSWORD}
+              nexusUser=${NEXUS_USER}
+              nexusPassword=${NEXUS_PASSWORD}
+              githubUser=${GITHUB_USER}
+              githubToken=${GITHUB_TOKEN}
+              allow.root=true
+              org.gradle.vfs.watch=false
+              docker_com.etendoerp.docker_db=true
+              org.gradle.jvmargs=-Dfile.encoding=UTF-8" > gradle.properties
+              """
+
+              echo "---------------- Add dependencies ----------------"
+
+              def buildGradleContent = """
+                dependencies {
+                    implementation(\"com.etendoerp.platform:etendo-core:latest.release\")
+                }
+              """
+
+              sh """
+              cd etendo_base
+              echo '${buildGradleContent}' >> build.gradle
+              cat build.gradle
+              """
+              
+              echo "---------------- Build & Compile ----------------"
+              sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} "Starting test stage" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
+              sh """
+              cd etendo_base
+              mkdir modules
+              cd modules
+              git clone ${DOCKER_MODULE_URL}.git
+              cd ${MODULE_PACKAGE}
+              git checkout ${GIT_COMMIT}
+              cd ../..
+              ./gradlew prepareConfig
+              ./gradlew setup
+              ./gradlew resources.up -Pcontext.name=${CONTEXT_NAME}
+              """
+
+              echo "---------------- Verifying Docker Containers ----------------"
+              sleep time: 15, unit: 'SECONDS'
+              def dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
+              if (!dockerPsOutput.contains("etendo-db-1")) {
+                error("The etendo-db-1 container is not running")
+              }
+
+              echo "---------------- Docker Containers are running ----------------"
+              
+              sh """
+              cd etendo_base
+              ./gradlew resources.stop -Pcontext.name=${CONTEXT_NAME}
+              """
+              
+              sleep time: 15, unit: 'SECONDS'              
+              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
+              if (dockerPsOutput.contains("etendo-db-1") && !dockerPsOutput.contains("Exited")) {
+                error("The etendo-db-1 container still running")
+              }
+
+              echo "---------------- Cleaning Docker Containers ----------------"
+              sh """
+              cd etendo_base
+              ./gradlew resources.down -Pcontext.name=${CONTEXT_NAME}
+              """
+              
+              sleep time: 15, unit: 'SECONDS'              
+              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
+              if (dockerPsOutput.contains("etendo-db-1")) {
+                error("The etendo-db-1 container still exists")
+              }
+
+              currentBuild.result = SUCCESS
+            } catch (Exception e) {
+              echo "---------------- Build environment Failed ----------------"
+              echo "Exception occurred: " + e.toString()
+              currentBuild.result = FAILED
+              error('Build Failed')
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  post {
+    success {
+      container('compiler') {
+        script {
+          sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_SUCCESS_STATUS} "Successful Docker Test" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
+        }
+      }
+    }
+
+    fixed {
+      mail to: EMAIL_ADDRESS,
+      subject: "✅ FIXED - ${currentBuild.fullDisplayName}",
+      mimeType: "text/html",
+      body: """
+      <html>
+          <head>
+              <style>
+                  body { font-family: 'Arial', sans-serif; }
+                  .header { font-size: 16px; font-weight: bold; color: #333; }
+              </style>
+          </head>
+          <body>
+              <p><em>${new Date()}</em></p>
+              <p>__________________________________________________________</p>
+
+              <h2 class="header">✅ ERRORS FIXED ✅</h2>
+
+              <p>
+                  <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
+                  <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
+              </p>
+              <p>
+                  The build has been fixed.<br />
+                  💡 This build was on the ${MODULE_PACKAGE} module.<br />
+                  For more information about the run, visit:<br />
+                  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
+              </p>
+              <p>__________________________________________________________</p>
+          </body>
+      </html>
+      """
+    }
+    failure {
+      container('compiler') {
+        script {
+          sh './pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_FAILED_STATUS} "Build Failed" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\"'
+        }
+      }
+      mail to: EMAIL_ADDRESS,
+      subject: "⛔ ERROR - ${currentBuild.fullDisplayName}",
+      mimeType: "text/html",
+      body:  """
+      <html>
+          <head>
+              <style>
+                  body { font-family: 'Arial', sans-serif; }
+                  .header { font-size: 16px; font-weight: bold; color: #333; }
+              </style>
+          </head>
+          <body>
+              <p><em>${new Date()}</em></p>
+              <p>__________________________________________________________</p>
+
+              <h2 class="header">🚫 BUILD FAILED 🚫</h2>
+
+              <p>
+                  <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
+                  <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
+              </p>
+              <p>
+                  The build has failed unexpectedly.<br />
+                  💡 This build was on the ${MODULE_PACKAGE} module.<br />
+                  To more information on the failing run visit:<br />
+                  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
+              </p>
+      __________________________________________________________
+      """
+    }
+  }
+}
