@@ -22,6 +22,61 @@ ext.envFile = { ->
     return [properties: properties, envFile: envFile]
 }
 
+/**
+ * Retrieves legacy properties from a configuration file located in the project's config directory.
+ * The configuration file is "Openbravo.properties".
+ * @return A Properties object containing the properties from the configuration file.
+ *         If the file does not exist, an empty Properties object is returned.
+ */
+def getLegacyProperties = { ->
+    def configFile = file("$projectDir/config/").listFiles().find { (it.name == "Openbravo.properties") }
+    def properties = new Properties()
+    project.logger.info("Reading properties from: $configFile")
+    if (!configFile.exists()) {
+        project.logger.info("File not found: $configFile")
+        return properties
+    }
+    configFile.withInputStream { input ->
+        properties.load(input)
+    }
+    return properties
+}
+
+/**
+ * Converts a given key to a standardized format.
+ * The method performs the following transformations:
+ * 1. Inserts an underscore between lowercase and uppercase letters.
+ * 2. Converts the entire string to uppercase.
+ * 3. Replaces periods with underscores.
+ *
+ * @param key the input string to be standardized
+ * @return the standardized key as a string
+ */
+def standarizeKey(key) {
+    return key.replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase().replace('.', '_')
+}
+
+/**
+ * Task: generateEnvFile
+ * 
+ * Description:
+ * Converts gradle.properties configurations into a .env file located in build/compose/.env.
+ * 
+ * Group:
+ * Docker
+ * 
+ * Details:
+ * - Reads properties from gradle.properties and legacy properties.
+ * - Writes these properties to a .env file, excluding the 'volumes.path' property.
+ * - Standardizes property keys before writing.
+ * - Ensures that legacy properties do not overwrite existing properties from gradle.properties.
+ * - Sets the VOLUMES_PATH in the .env file, defaulting to "$buildDir/../volumes" if not specified.
+ * - Sets the DOCKER_BBDD_PROFILE based on the isBBDDEnabled flag.
+ * - Creates the directory specified by VOLUMES_PATH if it does not exist.
+ * 
+ * Outputs:
+ * - Generates a .env file at the specified location.
+ */
 task generateEnvFile {
     description = 'Converts gradle.properties configurations into a .env file in build/compose/.env'
     group = 'Docker'
@@ -31,13 +86,31 @@ task generateEnvFile {
         def props = envFile()
         def env = props.envFile
         def properties = props.properties
+        def legacyProperties = getLegacyProperties()
+        def keys = []
         env.withWriter { writer ->
+            project.logger.debug("Generating .env file with properties: ")
             properties.each { key, value ->
                 if (key == volumesPathKey) {
                     return
                 }
-                def envKey = key.toString().replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase().replace('.', '_')
+                def envKey = standarizeKey(key.toString())
+                keys.add(envKey)
+                project.logger.debug("Writing property: $envKey=$value")
                 writer.write("${envKey}=${value}\n")
+            }
+            project.logger.debug("Generating .env file with legacy properties:")
+            legacyProperties.each { key, value ->
+                if (key == volumesPathKey) {
+                    return
+                }
+                def envKey = standarizeKey(key.toString())
+                if (keys.contains(envKey)) {
+                    project.logger.debug("Skipping legacy property: $envKey=$value due gradle.properties already contains it.")
+                }else{
+                    project.logger.debug("Writing legacy property: $envKey=$value")
+                    writer.write("${envKey}=${value}\n")
+                }
             }
             def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
             writer.write("VOLUMES_PATH=${volumesPath}\n")
@@ -49,8 +122,11 @@ task generateEnvFile {
             new File(volumesPath).mkdirs()
         }
         println "Generated .env file at: $env"
+
     }
 }
+
+
 
 task copyComposeFiles {
     description = 'Finds all Docker Compose YAML files and copies them to build/compose'
@@ -63,7 +139,7 @@ task copyComposeFiles {
             destDir.mkdirs()
         } else {
             destDir.eachFile { file ->
-                if(file.name.endsWith(".yml")) {
+                if (file.name.endsWith(".yml")) {
                     file.delete()
                 }
             }
@@ -74,9 +150,9 @@ task copyComposeFiles {
             {
                 fileTree(dir: dir, include: composeFilesPattern).each { file ->
                     def module = file.name.replaceFirst(/.yml/, '')
-                    if(file.name == "docker-compose.yml" ||
+                    if (file.name == "docker-compose.yml" ||
                             (project.hasProperty("docker_" + module) &&
-                            project.property("docker_" + module) == "true")) {
+                                    project.property("docker_" + module) == "true")) {
                         println "Using Docker Compose file: $file"
                         copy {
                             from file
@@ -113,7 +189,7 @@ ext.executeDockerComposeCommand = { String action ->
 
     println "Running: $command"
     def os_cmd = []
-    if(Os.isFamily(Os.FAMILY_WINDOWS)) {
+    if (Os.isFamily(Os.FAMILY_WINDOWS)) {
         os_cmd = ['cmd', '/c'] + command
     } else {
         def lastCommandFile = file("$composeDir/.last-command")
