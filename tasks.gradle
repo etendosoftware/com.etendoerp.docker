@@ -195,13 +195,9 @@ ext.executeDockerComposeCommand = { String action ->
         def lastCommandFile = file("$composeDir/.last-command")
         lastCommandFile.text = command.join(' ')
         os_cmd = ['sh', "$composeDir/.last-command"]
-        if (lastCommandFile.exists()) {
-            exec {
-                commandLine os_cmd
-            }
-        } else {
-            project.logger.error("Error: the .last-command file does not exist in $composeDir.")
-        }
+    }
+    exec {
+        commandLine os_cmd
     }
 }
 
