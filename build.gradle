@@ -7,7 +7,7 @@
 */
 
 group          = "com.etendoerp"
-version        = "1.4.0"
+version        = "1.4.1"
 description    = "This module provides the infrastructure to distribute and manage Docker containers within the Etendo Classic environment, using a standardized method and Gradle tasks"
 ext.artifact   = "docker"
 ext.repository = "https://maven.pkg.github.com/etendosoftware/com.etendoerp.platform.extensions"
