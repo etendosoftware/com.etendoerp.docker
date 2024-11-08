@@ -6,7 +6,7 @@
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <AD_ORG_ID><![CDATA[0]]></AD_ORG_ID>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <ISACTIVE><![CDATA[Y]]></ISACTIVE>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <NAME><![CDATA[Docker Help Utils]]></NAME>
-<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <VERSION><![CDATA[1.4.1]]></VERSION>
+<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <VERSION><![CDATA[1.5.0]]></VERSION>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <DESCRIPTION><![CDATA[This module provides the infrastructure to distribute and manage Docker containers within the Etendo Classic environment, using a standardized method and Gradle tasks]]></DESCRIPTION>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <HELP><![CDATA[This module provides the necessary infrastructure to distribute and run Docker containers in a modular way within the Etendo Classic environment. It offers a standardized method to package the infrastructure into modules and provides Gradle tasks to efficiently manage these containers.]]></HELP>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <TYPE><![CDATA[M]]></TYPE>
