@@ -230,3 +230,12 @@ task "resources.stop" {
         executeDockerComposeCommand('stop')
     }
 }
+
+afterEvaluate {
+    tasks.named("smartbuild").configure { task ->
+        task.dependsOn("copyComposeFiles")
+    }
+    tasks.named("compile.complete").configure { task ->
+        task.dependsOn("copyComposeFiles")
+    }
+}
