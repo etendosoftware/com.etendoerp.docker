@@ -6,6 +6,7 @@ def propertiesFile = 'gradle.properties'
 
 ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toBoolean() : false
 ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toBoolean() : false
+ext.contextName = project.hasProperty("context.name") ? project.property("context.name").toString() : "etendo"
 
 ext.envFile = { ->
     def envFile = file("$composeDir/.env")
@@ -58,13 +59,13 @@ def standarizeKey(key) {
 
 /**
  * Task: generateEnvFile
- * 
+ *
  * Description:
  * Converts gradle.properties configurations into a .env file located in build/compose/.env.
- * 
+ *
  * Group:
  * Docker
- * 
+ *
  * Details:
  * - Reads properties from gradle.properties and legacy properties.
  * - Writes these properties to a .env file, excluding the 'volumes.path' property.
@@ -73,7 +74,7 @@ def standarizeKey(key) {
  * - Sets the VOLUMES_PATH in the .env file, defaulting to "$buildDir/../volumes" if not specified.
  * - Sets the DOCKER_BBDD_PROFILE based on the isBBDDEnabled flag.
  * - Creates the directory specified by VOLUMES_PATH if it does not exist.
- * 
+ *
  * Outputs:
  * - Generates a .env file at the specified location.
  */
@@ -107,7 +108,7 @@ task generateEnvFile {
                 def envKey = standarizeKey(key.toString())
                 if (keys.contains(envKey)) {
                     project.logger.debug("Skipping legacy property: $envKey=$value due gradle.properties already contains it.")
-                }else{
+                } else {
                     project.logger.debug("Writing legacy property: $envKey=$value")
                     writer.write("${envKey}=${value}\n")
                 }
@@ -125,7 +126,6 @@ task generateEnvFile {
 
     }
 }
-
 
 
 task copyComposeFiles {
@@ -167,7 +167,7 @@ task copyComposeFiles {
 
         destDir.eachFileMatch(~/.*\.yml/) { file ->
             file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
-            file.text = file.text.replace('{CONTEXT_NAME}', project.property("context.name").toString())
+            file.text = file.text.replace('{CONTEXT_NAME}', contextName)
         }
 
     }
@@ -178,6 +178,26 @@ ext.executeDockerComposeCommand = { String action ->
     if (composeFiles.size() <= 1) {
         throw new GradleException("Currently, there are no Docker-enabled resources available.")
     }
+    println "Checking if Docker is running..."
+
+    def dockerRunning = false
+    try {
+        def process = new ProcessBuilder("docker", "info")
+                .redirectErrorStream(true)
+                .start()
+        if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+            println "Docker command timed out, assuming Docker is not running."
+            process.destroyForcibly()
+        } else if (process.exitValue() == 0) {
+            dockerRunning = true
+        }
+    } catch (Exception e) {
+        println "Error checking Docker: ${e.message}"
+    }
+    if (!dockerRunning) {
+        throw new GradleException("Docker is not running. Please start the Docker service.")
+    }
+
 
     def command = ['docker', 'compose', "--profile", "default"]
     composeFiles.each { file ->
