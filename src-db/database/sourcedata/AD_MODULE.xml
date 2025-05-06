@@ -10,16 +10,19 @@
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <DESCRIPTION><![CDATA[This module provides the infrastructure to distribute and manage Docker containers within the Etendo Classic environment, using a standardized method and Gradle tasks]]></DESCRIPTION>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <HELP><![CDATA[This module provides the necessary infrastructure to distribute and run Docker containers in a modular way within the Etendo Classic environment. It offers a standardized method to package the infrastructure into modules and provides Gradle tasks to efficiently manage these containers.]]></HELP>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <TYPE><![CDATA[M]]></TYPE>
+<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <LICENSE><![CDATA[This module is licensed under the Etendo License Version 1.0.
+You can find a copy of the license at: https://github.com/etendosoftware/etendo_core/blob/main/legal/Etendo_license.txt or in the LICENSE file located in the root directory of this module’s source code.]]></LICENSE>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <JAVAPACKAGE><![CDATA[com.etendoerp.docker]]></JAVAPACKAGE>
-<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <LICENSETYPE><![CDATA[Apache2.0]]></LICENSETYPE>
-<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <AUTHOR><![CDATA[Etendo Software]]></AUTHOR>
+<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <LICENSETYPE><![CDATA[ETCL]]></LICENSETYPE>
+<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <AUTHOR><![CDATA[Futit Services S.L.]]></AUTHOR>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <ISTRANSLATIONREQUIRED><![CDATA[Y]]></ISTRANSLATIONREQUIRED>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <AD_LANGUAGE><![CDATA[en_US]]></AD_LANGUAGE>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <HASCHARTOFACCOUNTS><![CDATA[N]]></HASCHARTOFACCOUNTS>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <ISTRANSLATIONMODULE><![CDATA[N]]></ISTRANSLATIONMODULE>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <HASREFERENCEDATA><![CDATA[N]]></HASREFERENCEDATA>
-<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <ISCOMMERCIAL><![CDATA[N]]></ISCOMMERCIAL>
+<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <ISCOMMERCIAL><![CDATA[Y]]></ISCOMMERCIAL>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <ISTRIALALLOWED><![CDATA[N]]></ISTRIALALLOWED>
+<!--36D2DDA4D6CE411C8A6096D0C13C7A7F-->  <EM_ETRX_ISREACT><![CDATA[N]]></EM_ETRX_ISREACT>
 <!--36D2DDA4D6CE411C8A6096D0C13C7A7F--></AD_MODULE>
 
 </data>
