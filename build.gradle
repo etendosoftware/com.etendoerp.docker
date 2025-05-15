@@ -47,6 +47,10 @@ sourceSets {
     }
 }
 
+tasks.named("compileTestJava") {
+    dependsOn("jar")
+}
+
 /**
 * Declare Java dependencies using 'implementation'
 * Ex: implementation "com.sun.mail:javax.mail:1.6.2"

@@ -1,6 +1,6 @@
 import org.apache.tools.ant.taskdefs.condition.Os
 
-ext.composeDir = "$buildDir/compose"
+ext.composeDir = layout.buildDirectory.dir("compose").get().asFile.path
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
 
@@ -9,7 +9,7 @@ ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? proje
 ext.contextName = project.hasProperty("context.name") ? project.property("context.name").toString() : "etendo"
 
 ext.envFile = { ->
-    def envFile = file("$composeDir/.env")
+    def envFile = file(layout.buildDirectory.dir("compose/.env").get().asFile)
     if (!envFile.parentFile.exists()) {
         envFile.parentFile.mkdirs()
     }
@@ -113,7 +113,8 @@ task generateEnvFile {
                     writer.write("${envKey}=${value}\n")
                 }
             }
-            def volumesPath = properties.getProperty(volumesPathKey, "$buildDir/../volumes")
+            def defaultVolumesPath = new File(project.layout.buildDirectory.asFile.get(), "../volumes").canonicalPath
+            def volumesPath = properties.getProperty(volumesPathKey, defaultVolumesPath)
             writer.write("VOLUMES_PATH=${volumesPath}\n")
             if (isBBDDEnabled) {
                 writer.write("DOCKER_BBDD_PROFILE=default\n")
@@ -145,7 +146,7 @@ task copyComposeFiles {
             }
         }
         destDir.mkdirs()
-        def dirs = ['modules', "${buildDir}/etendo/modules"]
+        def dirs = ['modules', "${layout.buildDirectory.get().asFile}/etendo/modules"]
         dirs.each { dir ->
             {
                 fileTree(dir: dir, include: composeFilesPattern).each { file ->
