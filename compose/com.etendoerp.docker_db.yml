@@ -1,7 +1,7 @@
 services:
   db:
     env_file: ".env"
-    image: postgres:14
+    image: postgres:16
     environment:
       POSTGRES_USER: ${BBDD_SYSTEM_USER}
       POSTGRES_PASSWORD: ${BBDD_SYSTEM_PASSWORD}
