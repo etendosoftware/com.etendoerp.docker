@@ -208,6 +208,15 @@ ext.executeDockerComposeCommand = { String action ->
         command << arg
     }
 
+    // Add --scale service=0 for excluded services from docker.exclude property, in case of up action
+    if (action.startsWith("up") && project.hasProperty("docker.exclude")) {
+        def excludedServices = project.property("docker.exclude").replace(" ","").split(',')
+        excludedServices.each { service ->
+            if (service) {
+                command << '--scale' << "${service}=0"
+            }
+        }
+    }
     println "Running: $command"
     def os_cmd = []
     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
