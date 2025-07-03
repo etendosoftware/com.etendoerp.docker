@@ -146,7 +146,8 @@ spec:
               allow.root=true
               org.gradle.vfs.watch=false
               docker_com.etendoerp.docker_db=true
-              org.gradle.jvmargs=-Dfile.encoding=UTF-8" > gradle.properties
+              org.gradle.jvmargs=-Dfile.encoding=UTF-8
+              java.version=11" > gradle.properties
               """
 
               echo '---------------- Add dependencies ----------------'
