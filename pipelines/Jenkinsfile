@@ -36,7 +36,7 @@ pipeline {
     FAILED   = 'FAILED'
     UNSTABLE = 'UNSTABLE'
 
-    NEXT_CLASSIC_VERSION = '25.2.0'
+    NEXT_CLASSIC_VERSION = '25.3.0'
     BASE_BRANCH_BACKPORT = "release/24.4"
     MAIN_BRANCH          = "main"
   }
