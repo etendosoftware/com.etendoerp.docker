@@ -199,7 +199,6 @@ ext.executeDockerComposeCommand = { String action ->
         throw new GradleException("Docker is not running. Please start the Docker service.")
     }
 
-
     def command = ['docker', 'compose', "--profile", "default"]
     composeFiles.each { file ->
         command << '-f' << file.absolutePath
@@ -208,6 +207,17 @@ ext.executeDockerComposeCommand = { String action ->
         command << arg
     }
 
+    // Add --scale service=0 for excluded services from docker.exclude property, in case of up action
+    if (action.equalsIgnoreCase("up -d") && project.hasProperty("docker.exclude")) {
+        def excludedServices = project.property("docker.exclude")
+                .split(',')
+                .collect { it.trim() }
+                .findAll { it }
+
+        excludedServices.each { service ->
+            command << '--scale' << "${service}=0"
+        }
+    }
     println "Running: $command"
     def os_cmd = []
     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
@@ -221,7 +231,6 @@ ext.executeDockerComposeCommand = { String action ->
         commandLine os_cmd
     }
 }
-
 task "resources.up" {
     description = 'Runs docker compose to bring up the Docker services'
     group = 'Docker'
