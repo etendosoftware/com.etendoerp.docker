@@ -22,9 +22,10 @@ pipeline {
     COMMIT_AUTHOR_NAME  = sh(returnStdout: true, script: "git log -1 --pretty=format:'%an'").trim()
     COMMIT_AUTHOR_EMAIL = sh(returnStdout: true, script: "git log -1 --pretty=format:'%ae'").trim()
 
-    ETENDO_BASE_URL   = 'https://github.com/etendosoftware/etendo_base'
+    ETENDO_CORE_URL   = 'https://github.com/etendosoftware/etendo_core'
     DOCKER_MODULE_URL = 'https://github.com/etendosoftware/com.etendoerp.docker'
 
+    TOMCAT_URL      = 'https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.98/bin/apache-tomcat-9.0.98.tar.gz'
     JAVA_HOME       = '/usr/lib/jvm/java-11-openjdk-amd64'
     MODULE_PACKAGE  = 'com.etendoerp.docker'
 
@@ -54,6 +55,7 @@ metadata:
   labels:
     app.kubernetes.io/name: jenkins-node-pg
 spec:
+  hostNetwork: true
   volumes:
     - name: rsa-keys
       configMap:
@@ -118,17 +120,26 @@ spec:
               echo '---------------- Print environment ----------------'
               sh 'printenv'
 
-              echo '---------------- Choice of etendo_base branch ----------------'
+              echo '---------------- Choice of etendo_core branch ----------------'
               env.BASE_BRANCH = env.MAIN_BRANCH
               if (env.GIT_BRANCH.contains("-Y") || env.GIT_BRANCH.startsWith("release")) {
                   env.BASE_BRANCH = env.BASE_BRANCH_BACKPORT
               }
 
               echo '--------------- Building Etendo environment ----------------'
-              sh "git clone ${ETENDO_BASE_URL}"
+              sh "git clone ${ETENDO_CORE_URL}"
+
+              echo "--------------- Building Etendo environment ----------------"
+
+              sh "wget -O apache-tomcat.tar.gz $TOMCAT_URL"
+              sh "tar -xvf apache-tomcat.tar.gz -C $WORKSPACE"
+
+              env.TOMCAT_FOLDER = sh(script: "basename ${TOMCAT_URL} .tar.gz", returnStdout: true).trim()
+              env.CATALINA_HOME = "${WORKSPACE}/${TOMCAT_FOLDER}"
+              env.CATALINA_BASE = "${WORKSPACE}/${TOMCAT_FOLDER}"
 
               sh """
-              cd etendo_base
+              cd etendo_core
               git checkout ${BASE_BRANCH}
 
               echo "\n
@@ -156,28 +167,63 @@ spec:
                 dependencies {
                     implementation(\"com.etendoerp.platform:etendo-core:[24.4.0,${NEXT_CLASSIC_VERSION})\")
                 }
+
+                etendo {
+                  ignoreCoreJarDependency = true
+                }
               """
 
               sh """
-              cd etendo_base
+              cd etendo_core
               echo '${buildGradleContent}' >> build.gradle
               cat build.gradle
               """
               
               echo '---------------- Build & Compile ----------------'
               sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting test stage\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
+
+              sh '''
+                cd etendo_core
+                mkdir -p modules
+                cd modules
+                git clone ${DOCKER_MODULE_URL}.git
+                cd ${MODULE_PACKAGE}/compose
+
+                # 1) Quito la sección de networks:
+                sed -i '/^[[:space:]]*networks:/,+1d' com.etendoerp.docker_db.yml
+
+                # 2) Quito la sección de ports:
+                sed -i '/^[[:space:]]*ports:/,+1d' com.etendoerp.docker_db.yml
+
+                # 3) Inserto network_mode con indentación correcta
+                awk '
+                /^[[:space:]]*image: postgres:16/ {
+                  print
+                  print "    network_mode: host"
+                  next
+                }
+                { print }
+                ' com.etendoerp.docker_db.yml > tmp.yml && mv tmp.yml com.etendoerp.docker_db.yml
+
+                # 4) Verifico el resultado
+                cat com.etendoerp.docker_db.yml
+              '''
+
+
               sh """
-              cd etendo_base
-              mkdir modules
-              cd modules
-              git clone ${DOCKER_MODULE_URL}.git
-              cd ${MODULE_PACKAGE}
-              git checkout ${GIT_COMMIT}
-              cd ../..
-              ./gradlew prepareConfig
-              ./gradlew setup
-              ./gradlew resources.up -Pcontext.name=${CONTEXT_NAME}
+                cd etendo_core
+                ./gradlew prepareConfig
+                ./gradlew setup
+                ./gradlew resources.up -Pcontext.name=${CONTEXT_NAME}
               """
+              sh '''
+                echo "=== Contenedores Postgres ==="
+                docker ps --filter name=etendo-db --format "{{.Names}}\t{{.Status}}"
+                sleep 30s
+                echo "=== Prueba de conexión ==="
+                psql -h localhost -U ${BBDD_SYSTEMUSER} -c '\\l'
+              '''
+
 
               echo '---------------- Verifying Docker Containers ----------------'
               sleep time: 15, unit: 'SECONDS'
@@ -186,11 +232,34 @@ spec:
               if (!dockerPsOutput.contains("etendo-db-1")) {
                 error('The etendo-db-1 container is not running')
               }
+              echo "---------------- Docker Containers are running ----------------"
 
-              echo '---------------- Docker Containers are running ----------------'
+              echo "-------------------- Checking install task --------------------"
+              sh """
+              cd etendo_core
+              ./gradlew install smartbuild
+              """
+              sh "${WORKSPACE}/${TOMCAT_FOLDER}/bin/catalina.sh start"
+              sh "sleep 1m"
+
+              def tomcatResponse = sh(
+                script: """
+                  curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/${CONTEXT_NAME}/security/Login_FS.html
+                """,
+                returnStdout: true
+              ).trim()
+
+              echo "Tomcat response code: ${tomcatResponse}"
+              if (tomcatResponse != "200") {
+                error("Tomcat did not respond with 200. Response code: ${tomcatResponse}")
+              }
+
+              echo "-------------------- Stopping Tomcat --------------------"
+              sh "${WORKSPACE}/${TOMCAT_FOLDER}/bin/catalina.sh stop"
+
               
               sh """
-              cd etendo_base
+              cd etendo_core
               ./gradlew resources.stop -Pcontext.name=${CONTEXT_NAME}
               """
               
@@ -203,7 +272,7 @@ spec:
 
               echo '---------------- Cleaning Docker Containers ----------------'
               sh """
-              cd etendo_base
+              cd etendo_core
               ./gradlew resources.down -Pcontext.name=${CONTEXT_NAME}
               """
               
@@ -236,74 +305,74 @@ spec:
       }
     }
 
-    fixed {
-      mail to: EMAIL_ADDRESS,
-      subject: "✅ FIXED - ${currentBuild.fullDisplayName}",
-      mimeType: 'text/html',
-      body: """
-      <html>
-          <head>
-              <style>
-                  body { font-family: 'Arial', sans-serif; }
-                  .header { font-size: 16px; font-weight: bold; color: #333; }
-              </style>
-          </head>
-          <body>
-              <p><em>${new Date()}</em></p>
-              <p>__________________________________________________________</p>
-
-              <h2 class="header">✅ ERRORS FIXED ✅</h2>
-
-              <p>
-                  <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
-                  <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
-              </p>
-              <p>
-                  The build has been fixed.<br />
-                  💡 This build was on the ${MODULE_PACKAGE} module.<br />
-                  For more information about the run, visit:<br />
-                  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
-              </p>
-              <p>__________________________________________________________</p>
-          </body>
-      </html>
-      """
-    }
-    failure {
-      container('compiler') {
-        script {
-          sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_FAILED_STATUS} \"Build Failed\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
-        }
-      }
-      mail to: EMAIL_ADDRESS,
-      subject: "⛔ ERROR - ${currentBuild.fullDisplayName}",
-      mimeType: 'text/html',
-      body:  """
-      <html>
-          <head>
-              <style>
-                  body { font-family: 'Arial', sans-serif; }
-                  .header { font-size: 16px; font-weight: bold; color: #333; }
-              </style>
-          </head>
-          <body>
-              <p><em>${new Date()}</em></p>
-              <p>__________________________________________________________</p>
-
-              <h2 class="header">🚫 BUILD FAILED 🚫</h2>
-
-              <p>
-                  <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
-                  <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
-              </p>
-              <p>
-                  The build has failed unexpectedly.<br />
-                  💡 This build was on the ${MODULE_PACKAGE} module.<br />
-                  To more information on the failing run visit:<br />
-                  <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
-              </p>
-      __________________________________________________________
-      """
-    }
+//     fixed {
+//       mail to: EMAIL_ADDRESS,
+//       subject: "✅ FIXED - ${currentBuild.fullDisplayName}",
+//       mimeType: 'text/html',
+//       body: """
+//       <html>
+//           <head>
+//               <style>
+//                   body { font-family: 'Arial', sans-serif; }
+//                   .header { font-size: 16px; font-weight: bold; color: #333; }
+//               </style>
+//           </head>
+//           <body>
+//               <p><em>${new Date()}</em></p>
+//               <p>__________________________________________________________</p>
+//
+//               <h2 class="header">✅ ERRORS FIXED ✅</h2>
+//
+//               <p>
+//                   <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
+//                   <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
+//               </p>
+//               <p>
+//                   The build has been fixed.<br />
+//                   💡 This build was on the ${MODULE_PACKAGE} module.<br />
+//                   For more information about the run, visit:<br />
+//                   <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
+//               </p>
+//               <p>__________________________________________________________</p>
+//           </body>
+//       </html>
+//       """
+//     }
+//     failure {
+//       container('compiler') {
+//         script {
+//           sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_FAILED_STATUS} \"Build Failed\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
+//         }
+//       }
+//       mail to: EMAIL_ADDRESS,
+//       subject: "⛔ ERROR - ${currentBuild.fullDisplayName}",
+//       mimeType: 'text/html',
+//       body:  """
+//       <html>
+//           <head>
+//               <style>
+//                   body { font-family: 'Arial', sans-serif; }
+//                   .header { font-size: 16px; font-weight: bold; color: #333; }
+//               </style>
+//           </head>
+//           <body>
+//               <p><em>${new Date()}</em></p>
+//               <p>__________________________________________________________</p>
+//
+//               <h2 class="header">🚫 BUILD FAILED 🚫</h2>
+//
+//               <p>
+//                   <strong>Commit:</strong> <a href="${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}">${DOCKER_MODULE_URL}/commits/${env.GIT_COMMIT}</a><br />
+//                   <strong>Author:</strong> ${COMMIT_AUTHOR_NAME} (${COMMIT_AUTHOR_EMAIL})
+//               </p>
+//               <p>
+//                   The build has failed unexpectedly.<br />
+//                   💡 This build was on the ${MODULE_PACKAGE} module.<br />
+//                   To more information on the failing run visit:<br />
+//                   <a href="${env.BUILD_URL}">${env.BUILD_URL}</a>
+//               </p>
+//       __________________________________________________________
+//       """
+//     }
   }
 }
