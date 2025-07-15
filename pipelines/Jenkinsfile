@@ -25,6 +25,7 @@ pipeline {
     ETENDO_BASE_URL   = 'https://github.com/etendosoftware/etendo_base'
     DOCKER_MODULE_URL = 'https://github.com/etendosoftware/com.etendoerp.docker'
 
+    TOMCAT_URL      = 'https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.98/bin/apache-tomcat-9.0.98.tar.gz'
     JAVA_HOME       = '/usr/lib/jvm/java-11-openjdk-amd64'
     MODULE_PACKAGE  = 'com.etendoerp.docker'
 
@@ -127,6 +128,15 @@ spec:
               echo '--------------- Building Etendo environment ----------------'
               sh "git clone ${ETENDO_BASE_URL}"
 
+              echo "--------------- Building Etendo environment ----------------"
+
+              sh "wget -O apache-tomcat.tar.gz $TOMCAT_URL"
+              sh "tar -xvf apache-tomcat.tar.gz -C $WORKSPACE"
+
+              env.TOMCAT_FOLDER = sh(script: "basename ${TOMCAT_URL} .tar.gz", returnStdout: true).trim()
+              env.CATALINA_HOME = "${WORKSPACE}/${TOMCAT_FOLDER}"
+              env.CATALINA_BASE = "${WORKSPACE}/${TOMCAT_FOLDER}"
+
               sh """
               cd etendo_base
               git checkout ${BASE_BRANCH}
@@ -186,8 +196,31 @@ spec:
               if (!dockerPsOutput.contains("etendo-db-1")) {
                 error('The etendo-db-1 container is not running')
               }
+              echo "---------------- Docker Containers are running ----------------"
 
-              echo '---------------- Docker Containers are running ----------------'
+              echo "-------------------- Checking install task --------------------"
+              sh """
+              cd etendo_base
+              ./gradlew install smartbuild
+              """
+              sh "${WORKSPACE}/${TOMCAT_FOLDER}/bin/catalina.sh start"
+              sh "sleep 1m"
+
+              def tomcatResponse = sh(
+                script: """
+                  curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/${CONTEXT_NAME}/security/Login_FS.html
+                """,
+                returnStdout: true
+              ).trim()
+
+              echo "Tomcat response code: ${tomcatResponse}"
+              if (tomcatResponse != "200") {
+                error("Tomcat did not respond with 200. Response code: ${tomcatResponse}")
+              }
+
+              echo "-------------------- Stopping Tomcat --------------------"
+              sh "${WORKSPACE}/${TOMCAT_FOLDER}/bin/catalina.sh stop"
+
               
               sh """
               cd etendo_base
