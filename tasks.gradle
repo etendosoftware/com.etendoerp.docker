@@ -33,7 +33,7 @@ def getLegacyProperties = { ->
     def configFile = file("$projectDir/config/").listFiles().find { (it.name == "Openbravo.properties") }
     def properties = new Properties()
     project.logger.info("Reading properties from: $configFile")
-    if (!configFile.exists()) {
+    if (configFile == null || !configFile.exists()) {
         project.logger.info("File not found: $configFile")
         return properties
     }
