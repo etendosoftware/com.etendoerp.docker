@@ -293,7 +293,7 @@ task "resources.up" {
     dependsOn copyComposeFiles
 
     doLast {
-        executeDockerComposeCommand('up -d')
+        executeDockerComposeCommand('up -d --build')
     }
 }
 
