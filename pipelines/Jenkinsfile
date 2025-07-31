@@ -137,7 +137,7 @@ spec:
 
               sh """
               cd ${ETENDO_BASE}
-              git checkout main
+              git checkout ${env.BASE_BRANCH}
 
               echo "\n
               context.name=${CONTEXT_NAME}
@@ -208,14 +208,19 @@ spec:
               if (!dockerPsOutput.contains("etendo-db-1")) {
                 error('The etendo-db-1 container is not running')
               }
-              echo "---------------- Docker Containers are running ----------------"
+              echo "Docker Containers are running"
 
               echo "-------------------- Checking install task --------------------"
-               echo "🔌 Closing active connections to the 'etendo' database"
-               sh """
-                echo '🧹 Attempting to delete the etendo database (if it exists)...'
-                PGPASSWORD=${BBDD_SYSTEMPASS} psql \"host=${pgIp} port=${BBDD_PORT} user=${BBDD_SYSTEMUSER} dbname=postgres\" -c \\
-                  \"DROP DATABASE IF EXISTS etendo WITH (FORCE);\" || echo '⚠️ Could not delete database or it did not exist. Continuing...'
+              echo "🔌 Closing active connections to the 'etendo' database"
+              withEnv(["PGPASSWORD=${env.BBDD_SYSTEMPASS}"]) {
+                sh """
+                  echo '🧹 Attempting to delete the etendo database (if it exists)...'
+                  psql -h ${pgIp} -p ${BBDD_PORT} -U ${BBDD_SYSTEMUSER} -d postgres <<EOF
+                  DROP DATABASE IF EXISTS etendo WITH (FORCE);
+                  EOF
+                """
+              }
+              sh """
                 cd ${ETENDO_BASE}
                 ./gradlew install
                 ./gradlew smartbuild
@@ -225,6 +230,7 @@ spec:
               def interval = 5 // Interval between checks in seconds
               def elapsed = 0
               def tomcatReady = false
+              def tomcatResponse = "";
               def url = "http://localhost:8080/${CONTEXT_NAME}/security/Login_FS.html"
               while (elapsed < timeout) {
                 try {
