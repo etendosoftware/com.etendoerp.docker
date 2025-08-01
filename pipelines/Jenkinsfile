@@ -25,8 +25,10 @@ pipeline {
     ETENDO_BASE_URL   = 'https://github.com/etendosoftware/etendo_base'
     DOCKER_MODULE_URL = 'https://github.com/etendosoftware/com.etendoerp.docker'
 
+    TOMCAT_URL      = 'https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.98/bin/apache-tomcat-9.0.98.tar.gz'
     JAVA_HOME       = '/usr/lib/jvm/java-11-openjdk-amd64'
     MODULE_PACKAGE  = 'com.etendoerp.docker'
+    ETENDO_BASE     = 'etendo_base'
 
     COMMIT_INPROGRESS_STATUS = 'pending'
     COMMIT_SUCCESS_STATUS    = 'success'
@@ -41,11 +43,11 @@ pipeline {
     MAIN_BRANCH          = "main"
   }
 
-  agent {
+  agent { // MARK: - Agent
     kubernetes {
-        inheritFrom 'jenkins-node-pg'
-        defaultContainer 'jnlp'
-        yaml """
+      inheritFrom 'jenkins-node-rx'
+      defaultContainer 'jnlp'
+      yaml """
 apiVersion: v1
 kind: Pod
 metadata:
@@ -115,9 +117,6 @@ spec:
           script {
             sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting build\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
             try {
-              echo '---------------- Print environment ----------------'
-              sh 'printenv'
-
               echo '---------------- Choice of etendo_base branch ----------------'
               env.BASE_BRANCH = env.MAIN_BRANCH
               if (env.GIT_BRANCH.contains("-Y") || env.GIT_BRANCH.startsWith("release")) {
@@ -127,9 +126,18 @@ spec:
               echo '--------------- Building Etendo environment ----------------'
               sh "git clone ${ETENDO_BASE_URL}"
 
+              echo "--------------- Building Etendo environment ----------------"
+
+              sh "wget -O apache-tomcat.tar.gz ${TOMCAT_URL}"
+              sh "tar -xvf apache-tomcat.tar.gz -C ${WORKSPACE} > /dev/null 2>&1"
+
+              env.TOMCAT_FOLDER = sh(script: "basename ${TOMCAT_URL} .tar.gz", returnStdout: true).trim()
+              env.CATALINA_HOME = "${WORKSPACE}/${TOMCAT_FOLDER}"
+              env.CATALINA_BASE = "${WORKSPACE}/${TOMCAT_FOLDER}"
+
               sh """
-              cd etendo_base
-              git checkout ${BASE_BRANCH}
+              cd ${ETENDO_BASE}
+              git checkout ${env.BASE_BRANCH}
 
               echo "\n
               context.name=${CONTEXT_NAME}
@@ -147,6 +155,7 @@ spec:
               org.gradle.vfs.watch=false
               docker_com.etendoerp.docker_db=true
               org.gradle.jvmargs=-Dfile.encoding=UTF-8
+              org.gradle.daemon=false
               java.version=11" > gradle.properties
               """
 
@@ -157,63 +166,113 @@ spec:
                     implementation(\"com.etendoerp.platform:etendo-core:[24.4.0,${NEXT_CLASSIC_VERSION})\")
                 }
               """
-
               sh """
-              cd etendo_base
+              cd ${ETENDO_BASE}
               echo '${buildGradleContent}' >> build.gradle
-              cat build.gradle
               """
-              
               echo '---------------- Build & Compile ----------------'
               sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting test stage\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
               sh """
-              cd etendo_base
-              mkdir modules
-              cd modules
-              git clone ${DOCKER_MODULE_URL}.git
-              cd ${MODULE_PACKAGE}
-              git checkout ${GIT_COMMIT}
-              cd ../..
-              ./gradlew prepareConfig
-              ./gradlew setup
-              ./gradlew resources.up -Pcontext.name=${CONTEXT_NAME}
+                cd ${ETENDO_BASE}
+                mkdir -p modules
+                cd modules
+                git clone ${DOCKER_MODULE_URL}.git
+                cd ${MODULE_PACKAGE}
+                git checkout ${GIT_COMMIT}
+                cd ../..
+                ./gradlew prepareConfig
+                ./gradlew setup
+                ./gradlew resources.up --info
+              """
+              def pgIp = sh(
+                script: "docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' etendo-db-1",
+                returnStdout: true
+              ).trim()
+              def confFile = "${ETENDO_BASE}/gradle.properties"
+              sh """
+                echo Postgres IP: ${pgIp}
+                # Replace or add dbdd.url
+                if grep -q '^bbdd.url=' ${confFile}; then
+                  sed -i  "s|^bbdd.url=.*|bbdd.url=jdbc:postgresql://${pgIp}:${BBDD_PORT}|" ${confFile}
+                else
+                  echo "bbdd.url=jdbc:postgresql://${pgIp}:${BBDD_PORT}" >> ${confFile}
+                fi
+                cd ${ETENDO_BASE}
+                ./gradlew setup
               """
 
               echo '---------------- Verifying Docker Containers ----------------'
               sleep time: 15, unit: 'SECONDS'
-              def dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              def dockerPsOutput = sh(script: 'docker ps', returnStdout: true)
               echo "${dockerPsOutput}"
               if (!dockerPsOutput.contains("etendo-db-1")) {
                 error('The etendo-db-1 container is not running')
               }
+              echo "Docker Containers are running"
 
-              echo '---------------- Docker Containers are running ----------------'
-              
+              echo "-------------------- Checking install task --------------------"
+              echo "🔌 Closing active connections to the 'etendo' database"
+              withEnv(["PGPASSWORD=${env.BBDD_SYSTEMPASS}"]) {
+                sh """
+                  echo '🧹 Attempting to delete the etendo database (if it exists)...'
+                  psql -h ${pgIp} -p ${BBDD_PORT} -U ${BBDD_SYSTEMUSER} -d postgres <<EOF
+                  DROP DATABASE IF EXISTS etendo WITH (FORCE);
+                """
+              }
               sh """
-              cd etendo_base
-              ./gradlew resources.stop -Pcontext.name=${CONTEXT_NAME}
+                cd ${ETENDO_BASE}
+                ./gradlew install
+                ./gradlew smartbuild
               """
-              
-              sleep time: 15, unit: 'SECONDS'              
-              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              sh "${WORKSPACE}/${TOMCAT_FOLDER}/bin/catalina.sh start"
+              def timeout = 60 // Timeout in seconds
+              def interval = 5 // Interval between checks in seconds
+              def elapsed = 0
+              def tomcatReady = false
+              def tomcatResponse = "";
+              def url = "http://localhost:8080/${CONTEXT_NAME}/security/Login_FS.html"
+              while (elapsed < timeout) {
+                try {
+                  tomcatResponse = sh(
+                    script: "curl -s -o /dev/null -w \"%{http_code}\" ${url}",
+                    returnStdout: true
+                  ).trim()
+                  echo "Tomcat response code: ${tomcatResponse}"
+                } catch (e) {
+                  tomcatResponse = "000"
+                }
+
+                if (tomcatResponse == "200") {
+                  tomcatReady = true
+                  break
+                }
+
+                echo "Tomcat not ready yet. Response code: ${tomcatResponse}. Retrying in ${interval} seconds..."
+                sleep interval
+                elapsed += interval
+              }
+              if (!tomcatReady) {
+                error("Tomcat did not start within the timeout period of ${timeout} seconds.")
+              }
+              echo "Tomcat response code: ${tomcatResponse}"
+              if (tomcatResponse != "200") {
+                error("Tomcat did not respond with 200. Response code: ${tomcatResponse}")
+              }
+
+              echo "-------------------- Stopping Tomcat --------------------"
+              sh "${WORKSPACE}/${TOMCAT_FOLDER}/bin/catalina.sh stop"
+
+              sh """
+              cd ${ETENDO_BASE}
+              ./gradlew resources.stop
+              """
+
+              sleep time: 30, unit: 'SECONDS'
+              dockerPsOutput = sh(script: 'docker ps', returnStdout: true)
               echo "${dockerPsOutput}"
               if (dockerPsOutput.contains("etendo-db-1") && !dockerPsOutput.contains("Exited")) {
                 error('The etendo-db-1 container still running')
               }
-
-              echo '---------------- Cleaning Docker Containers ----------------'
-              sh """
-              cd etendo_base
-              ./gradlew resources.down -Pcontext.name=${CONTEXT_NAME}
-              """
-              
-              sleep time: 15, unit: 'SECONDS'              
-              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
-              echo "${dockerPsOutput}"
-              if (dockerPsOutput.contains("etendo-db-1")) {
-                error('The etendo-db-1 container still exists')
-              }
-
               currentBuild.result = SUCCESS
             } catch (Exception e) {
               echo '---------------- Build environment Failed ----------------'
@@ -226,8 +285,46 @@ spec:
       }
     }
   }
-  
+
   post {
+    always {
+      container('compiler') {
+        script {
+          echo '---------------- Cleaning up Etendo environment ----------------'
+          echo '🧹 Cleaning up volume used by etendo-db-1 container'
+          try {
+            def volumeHostPath = sh(
+              script: "docker inspect -f '{{ range .Mounts }}{{ if eq .Destination \"/var/lib/postgresql/data\" }}{{ .Source }}{{ end }}{{ end }}' etendo-db-1",
+              returnStdout: true
+            ).trim()
+
+            sh """
+              cd ${ETENDO_BASE}
+              ./gradlew resources.down
+            """
+
+            if (volumeHostPath) {
+              echo "Removing volume path: ${volumeHostPath}"
+              sh """
+                rm -rf '${volumeHostPath}'
+              """
+              sleep time: 15, unit: 'SECONDS'
+              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
+              if (dockerPsOutput.contains("etendo-db-1")) {
+                error('The etendo-db-1 container still exists')
+              }
+            } else {
+              echo "⚠️ No volume path found for etendo-db-1"
+            }
+
+          } catch (Exception e) {
+            echo "⚠️ Cleanup failed: ${e.getMessage()}"
+          }
+        }
+      }
+    }
+
     success {
       container('compiler') {
         script {
