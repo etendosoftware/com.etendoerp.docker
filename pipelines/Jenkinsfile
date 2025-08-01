@@ -217,7 +217,6 @@ spec:
                   echo '🧹 Attempting to delete the etendo database (if it exists)...'
                   psql -h ${pgIp} -p ${BBDD_PORT} -U ${BBDD_SYSTEMUSER} -d postgres <<EOF
                   DROP DATABASE IF EXISTS etendo WITH (FORCE);
-                  EOF
                 """
               }
               sh """
@@ -268,33 +267,15 @@ spec:
               ./gradlew resources.stop
               """
 
-              sleep time: 15, unit: 'SECONDS'
-              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              sleep time: 30, unit: 'SECONDS'
+              dockerPsOutput = sh(script: 'docker ps', returnStdout: true)
               echo "${dockerPsOutput}"
               if (dockerPsOutput.contains("etendo-db-1") && !dockerPsOutput.contains("Exited")) {
                 error('The etendo-db-1 container still running')
               }
-
-              echo '---------------- Cleaning Docker Containers ----------------'
-              sh """
-              cd ${ETENDO_BASE}
-              ./gradlew resources.down
-              """
-
-              sleep time: 15, unit: 'SECONDS'
-              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
-              echo "${dockerPsOutput}"
-              if (dockerPsOutput.contains("etendo-db-1")) {
-                error('The etendo-db-1 container still exists')
-              }
-
               currentBuild.result = SUCCESS
             } catch (Exception e) {
               echo '---------------- Build environment Failed ----------------'
-              sh """
-                cd ${ETENDO_BASE}
-                ./gradlew resources.down
-              """
               echo "Exception occurred: " + e.toString()
               currentBuild.result = FAILED
               error('Build Failed')
@@ -306,6 +287,44 @@ spec:
   }
 
   post {
+    always {
+      container('compiler') {
+        script {
+          echo '---------------- Cleaning up Etendo environment ----------------'
+          echo '🧹 Cleaning up volume used by etendo-db-1 container'
+          try {
+            def volumeHostPath = sh(
+              script: "docker inspect -f '{{ range .Mounts }}{{ if eq .Destination \"/var/lib/postgresql/data\" }}{{ .Source }}{{ end }}{{ end }}' etendo-db-1",
+              returnStdout: true
+            ).trim()
+
+            sh """
+              cd ${ETENDO_BASE}
+              ./gradlew resources.down
+            """
+
+            if (volumeHostPath) {
+              echo "Removing volume path: ${volumeHostPath}"
+              sh """
+                rm -rf '${volumeHostPath}'
+              """
+              sleep time: 15, unit: 'SECONDS'
+              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
+              echo "${dockerPsOutput}"
+              if (dockerPsOutput.contains("etendo-db-1")) {
+                error('The etendo-db-1 container still exists')
+              }
+            } else {
+              echo "⚠️ No volume path found for etendo-db-1"
+            }
+
+          } catch (Exception e) {
+            echo "⚠️ Cleanup failed: ${e.getMessage()}"
+          }
+        }
+      }
+    }
+
     success {
       container('compiler') {
         script {
