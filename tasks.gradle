@@ -24,6 +24,60 @@ ext.envFile = { ->
 }
 
 /**
+ * Inserts or updates a key=value line in a .env file.
+ *
+ * @param key       String  – name of the property (e.g. 'OTEL_CONFIG_ENABLE')
+ * @param value     Object  – value you want to set (e.g. 'true')
+ */
+ext.upsertEnvProperty = { String key, Object value ->
+    def envFile = envFile().envFile
+    def strValue = value.toString()
+    String newLine = "${key}=${strValue}"
+    List<String> lines = new ArrayList<>(envFile.readLines('UTF-8'))
+    int idx = lines.findIndexOf { it.trim().startsWith("${key}=") }
+    if (idx >= 0) {
+        lines[idx] = newLine
+    } else {
+        lines << newLine
+    }
+    envFile.withWriter('UTF-8') { writer ->
+        lines.each { writer.writeLine(it) }
+    }
+}
+
+/**
+ * Lookup a project property by name and coerce it into
+ * Boolean, Integer, BigDecimal, or String as appropriate.
+ *
+ * @param key  the property name
+ * @return     typed value (Boolean, Integer, BigDecimal, or String), or null if absent
+ */
+ext.getTypedProp = { String key->
+    if (!project.hasProperty(key)) {
+        return null
+    }
+    def raw = project.property(key)
+    if (raw instanceof Boolean) {
+        return raw
+    }
+    String s = raw.toString().trim()
+    // boolean?
+    if (s.equalsIgnoreCase('true') || s.equalsIgnoreCase('false')) {
+        return s.toBoolean()
+    }
+    // integer?
+    if (s.isInteger()) {
+        return s.toInteger()
+    }
+    // decimal?
+    if (s ==~ /^\d+\.\d+$/) {
+        return s.toBigDecimal()
+    }
+    // fallback to string
+    return s
+}
+
+/**
  * Retrieves legacy properties from a configuration file located in the project's config directory.
  * The configuration file is "Openbravo.properties".
  * @return A Properties object containing the properties from the configuration file.
