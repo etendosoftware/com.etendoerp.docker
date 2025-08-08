@@ -61,13 +61,17 @@ spec:
       configMap:
         name: rsa-keys
         defaultMode: 384
-    - name: docker-sock
-      hostPath:
-        path: /var/run/docker.sock
-        type: ''
+    - name: dind-storage
+      emptyDir: {}           # local cache images for dind
   containers:
     - name: compiler
       image: etendo/compiler_jenkins:1.0.6
+      env:
+        - name: DOCKER_HOST
+          value: tcp://localhost:2375
+      securityContext:
+        privileged: true
+        runAsUser: 0
       ports:
         - name: ssh
           containerPort: 22
@@ -85,21 +89,31 @@ spec:
       volumeMounts:
         - name: rsa-keys
           mountPath: /root/.ssh/
-        - name: docker-sock
-          mountPath: /var/run/docker.sock
       lifecycle:
         postStart:
           exec:
             command:
               - bash
-              - '-c'
-              - >-
-                chmod a+x /var/run/docker.sock && rm
-                /etc/apt/sources.list.d/pgdg.list || echo 0 && apt update && apt
-                install -y curl
-      terminationMessagePath: /dev/termination-log
-      terminationMessagePolicy: File
+              - -lc
+              - |
+                set -e
+                apt-get update -y
+                command -v docker >/dev/null || apt-get install -y docker.io
+                apt-get install -y curl
       imagePullPolicy: IfNotPresent
+    - name: dind
+      image: docker:25-dind
+      securityContext:
+        privileged: true
+      env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""            # without TLS inside the pod
+      args:
+        - --mtu=1450           # adjust if your CNI requires it
+        - --storage-driver=overlay2
+      volumeMounts:
+        - name: dind-storage
+          mountPath: /var/lib/docker
   restartPolicy: Always
   terminationGracePeriodSeconds: 30
   dnsPolicy: ClusterFirst
@@ -111,12 +125,48 @@ spec:
   }
 
   stages {
-    stage ('Build Enviroment') {
+    stage('Wait for DinD') { // MARK: - Wait for DinD
       steps {
         container('compiler') {
           script {
-            sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting build\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
             try {
+              echo '---------------- Waiting for DinD to be ready ----------------'
+              timeout(time: 60, unit: 'SECONDS') {
+                int i = 0
+                waitUntil {
+                  i++
+                  int rc = sh(returnStatus: true, script: 'docker version >/dev/null 2>&1')
+                  if (rc == 0) {
+                    echo "✅ DinD is ready (after ${i} checks)"
+                    return true
+                  } else {
+                    echo "⏳ Waiting for DinD... attempt ${i}"
+                    sleep 2
+                    return false
+                  }
+                }
+              }
+              currentBuild.result = SUCCESS
+            } catch (Exception e) {
+              echo '---------------- Build environment Failed ----------------'
+              echo "Exception occurred: " + e.toString()
+              currentBuild.result = FAILED
+              error('Build Failed')
+            }
+          }
+        }
+      }
+    }
+    stage ('Build Enviroment') { // MARK: - Build Environment
+      when {
+        expression { currentBuild.result == SUCCESS }
+      }
+      steps {
+        container('compiler') {
+          script {
+            try {
+              sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting build\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
+
               echo '---------------- Choice of etendo_base branch ----------------'
               env.BASE_BRANCH = env.MAIN_BRANCH
               if (env.GIT_BRANCH.contains("-Y") || env.GIT_BRANCH.startsWith("release")) {
@@ -170,8 +220,17 @@ spec:
               cd ${ETENDO_BASE}
               echo '${buildGradleContent}' >> build.gradle
               """
+              echo '---------------- Verifying Docker Containers ----------------'
+              sh '''
+                bash -lc '
+                  set -euo pipefail
+                  echo "DOCKER_HOST=${DOCKER_HOST:-<empty>}"
+                  docker version
+                  docker info
+                  docker run --rm hello-world
+                '
+              '''
               echo '---------------- Build & Compile ----------------'
-              sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting test stage\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
               sh """
                 cd ${ETENDO_BASE}
                 mkdir -p modules
@@ -210,15 +269,6 @@ spec:
               }
               echo "Docker Containers are running"
 
-              echo "-------------------- Checking install task --------------------"
-              echo "🔌 Closing active connections to the 'etendo' database"
-              withEnv(["PGPASSWORD=${env.BBDD_SYSTEMPASS}"]) {
-                sh """
-                  echo '🧹 Attempting to delete the etendo database (if it exists)...'
-                  psql -h ${pgIp} -p ${BBDD_PORT} -U ${BBDD_SYSTEMUSER} -d postgres <<EOF
-                  DROP DATABASE IF EXISTS etendo WITH (FORCE);
-                """
-              }
               sh """
                 cd ${ETENDO_BASE}
                 ./gradlew install
@@ -291,32 +341,11 @@ spec:
       container('compiler') {
         script {
           echo '---------------- Cleaning up Etendo environment ----------------'
-          echo '🧹 Cleaning up volume used by etendo-db-1 container'
           try {
-            def volumeHostPath = sh(
-              script: "docker inspect -f '{{ range .Mounts }}{{ if eq .Destination \"/var/lib/postgresql/data\" }}{{ .Source }}{{ end }}{{ end }}' etendo-db-1",
-              returnStdout: true
-            ).trim()
-
             sh """
               cd ${ETENDO_BASE}
               ./gradlew resources.down
             """
-
-            if (volumeHostPath) {
-              echo "Removing volume path: ${volumeHostPath}"
-              sh """
-                rm -rf '${volumeHostPath}'
-              """
-              sleep time: 15, unit: 'SECONDS'
-              dockerPsOutput = sh(script: 'docker ps -a', returnStdout: true)
-              echo "${dockerPsOutput}"
-              if (dockerPsOutput.contains("etendo-db-1")) {
-                error('The etendo-db-1 container still exists')
-              }
-            } else {
-              echo "⚠️ No volume path found for etendo-db-1"
-            }
 
           } catch (Exception e) {
             echo "⚠️ Cleanup failed: ${e.getMessage()}"
