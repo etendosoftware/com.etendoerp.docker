@@ -6,6 +6,7 @@ def propertiesFile = 'gradle.properties'
 
 ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toBoolean() : false
 ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toBoolean() : false
+ext.tomcatPort = project.hasProperty("tomcat.port") ? project.property("tomcat.port").toString() : "8080"
 ext.contextName = project.hasProperty("context.name") ? project.property("context.name").toString() : "etendo"
 
 ext.envFile = { ->
@@ -175,6 +176,7 @@ task generateEnvFile {
             } else {
                 writer.write("DOCKER_BBDD_PROFILE=disabled\n")
             }
+            writer.write("TOMCAT_PORT=${tomcatPort}\n")
             new File(volumesPath).mkdirs()
         }
         println "Generated .env file at: $env"
