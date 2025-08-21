@@ -1,0 +1,34 @@
+// modules/com.etendoerp.docker/config.gradle
+
+/**
+ * Interactive configuration for Docker Module
+ */
+
+config {
+    dockerDb {
+        description = "Enables the dockerized database - Default: false"
+        value = "false"
+        name = "docker_com.etendoerp.docker_db"
+        sensitive = false
+        required = false
+        group = "Docker"
+    }
+
+    tomcatPort {
+        description = "Tomcat port - Default: 8080"
+        value = "8080"
+        name = "tomcat.port"
+        sensitive = false
+        required = false
+        group = "Tomcat"
+    }
+
+    dockerExclude {
+        description = "Docker services to exclude (comma separated)"
+        value = ""
+        name = "docker.exclude"
+        sensitive = false
+        required = false
+        group = "Docker"
+    }
+}
