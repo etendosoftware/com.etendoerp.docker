@@ -283,17 +283,36 @@ ext.executeDockerComposeCommand = { String action ->
         lastCommandFile.text = command.join(' ')
         os_cmd = ['sh', "$composeDir/.last-command"]
     }
-    exec {
+    def outputStream = new ByteArrayOutputStream()
+    def result = exec {
         commandLine os_cmd
+        standardOutput = outputStream
+        errorOutput = outputStream
+        ignoreExitValue = true
     }
+    if (result.exitValue != 0) {
+        throw new GradleException("The command fails:\n" + outputStream.toString())
+    }
+    // store in build/compose/logs the output of the last successful command
+    def logsDir = file("$composeDir/logs")
+    if (!logsDir.exists()) {
+        logsDir.mkdirs()
+    }
+    // get current timestamp to add it to the log file name
+    def timestamp = new Date().format("yyyyMMdd_HHmmss")
+    // create the log file with the timestamp
+    def logFile = file("$logsDir/build-timestamp-${timestamp}.log")
+    logFile.text = outputStream.toString()
+    println outputStream.toString()
 }
+
 task "resources.up" {
     description = 'Runs docker compose to bring up the Docker services'
     group = 'Docker'
     dependsOn copyComposeFiles
 
     doLast {
-        executeDockerComposeCommand('up -d --build')
+        executeDockerComposeCommand('up -d')
     }
 }
 
@@ -317,11 +336,24 @@ task "resources.stop" {
     }
 }
 
+task "resources.build" {
+    description = 'Runs docker compose to build the Docker services'
+    group = 'Docker'
+    dependsOn copyComposeFiles
+
+    doLast {
+        executeDockerComposeCommand('build --no-cache')
+    }
+}
+
 afterEvaluate {
     tasks.named("smartbuild").configure { task ->
         task.dependsOn("copyComposeFiles")
     }
     tasks.named("compile.complete").configure { task ->
         task.dependsOn("copyComposeFiles")
+    }
+    tasks.named("resources.up").configure {
+        mustRunAfter("resources.build")
     }
 }
