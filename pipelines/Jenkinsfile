@@ -204,6 +204,7 @@ spec:
               allow.root=true
               org.gradle.vfs.watch=false
               docker_com.etendoerp.docker_db=true
+              db.base.memory.mb=10240
               org.gradle.jvmargs=-Dfile.encoding=UTF-8
               org.gradle.daemon=false
               java.version=11" > gradle.properties

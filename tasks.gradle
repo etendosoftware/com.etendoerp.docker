@@ -179,6 +179,20 @@ task generateEnvFile {
             writer.write("TOMCAT_PORT=${tomcatPort}\n")
             new File(volumesPath).mkdirs()
         }
+        // DB Resource Limits
+        def DB_BASE_MEM_MB = getTypedProp("db.base.memory.mb") ?: 256
+        def DB_BASE_CPU = getTypedProp("db.base.cpu") ?: 1.0
+
+        def dbServiceFactors = [
+            DB: [mem: 1.0, cpu: 1.0]  // Default 256Mb - 1 Cpu
+        ]
+        dbServiceFactors.each { service, factors ->
+            def memMB = (DB_BASE_MEM_MB * factors.mem).toInteger()
+            def cpu = ((DB_BASE_CPU * factors.cpu) as BigDecimal).setScale(3, BigDecimal.ROUND_HALF_UP).toString()
+
+            upsertEnvProperty("BASE_${service}_MEMORY_LIMIT", "${memMB}M")
+            upsertEnvProperty("BASE_${service}_CPU_LIMIT", "${cpu}")
+        }
         println "Generated .env file at: $env"
 
     }
@@ -224,7 +238,6 @@ task copyComposeFiles {
 
         destDir.eachFileMatch(~/.*\.yml/) { file ->
             file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
-            file.text = file.text.replace('{CONTEXT_NAME}', contextName)
         }
 
     }
@@ -283,10 +296,29 @@ ext.executeDockerComposeCommand = { String action ->
         lastCommandFile.text = command.join(' ')
         os_cmd = ['sh', "$composeDir/.last-command"]
     }
-    exec {
+    def outputStream = new ByteArrayOutputStream()
+    def result = exec {
         commandLine os_cmd
+        standardOutput = outputStream
+        errorOutput = outputStream
+        ignoreExitValue = true
     }
+    if (result.exitValue != 0) {
+        throw new GradleException("The command fails:\n" + outputStream.toString())
+    }
+    // store in build/compose/logs the output of the last successful command
+    def logsDir = file("$composeDir/logs")
+    if (!logsDir.exists()) {
+        logsDir.mkdirs()
+    }
+    // get current timestamp to add it to the log file name
+    def timestamp = new Date().format("yyyyMMdd_HHmmss")
+    // create the log file with the timestamp
+    def logFile = file("$logsDir/build-timestamp-${timestamp}.log")
+    logFile.text = outputStream.toString()
+    println outputStream.toString()
 }
+
 task "resources.up" {
     description = 'Runs docker compose to bring up the Docker services'
     group = 'Docker'
@@ -317,11 +349,24 @@ task "resources.stop" {
     }
 }
 
+task "resources.build" {
+    description = 'Runs docker compose to build the Docker services'
+    group = 'Docker'
+    dependsOn copyComposeFiles
+
+    doLast {
+        executeDockerComposeCommand('build --no-cache')
+    }
+}
+
 afterEvaluate {
     tasks.named("smartbuild").configure { task ->
         task.dependsOn("copyComposeFiles")
     }
     tasks.named("compile.complete").configure { task ->
         task.dependsOn("copyComposeFiles")
+    }
+    tasks.named("resources.up").configure {
+        mustRunAfter("resources.build")
     }
 }
