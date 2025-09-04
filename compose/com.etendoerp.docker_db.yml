@@ -12,6 +12,11 @@ services:
       - etendo
     volumes:
       - ${VOLUMES_PATH}/db:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "${DB_CPU_LIMIT:-${BASE_DB_CPU_LIMIT:-1}}"
+          memory: "${DB_MEMORY_LIMIT:-${BASE_DB_MEMORY_LIMIT:-256M}}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 30s
