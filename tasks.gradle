@@ -180,18 +180,22 @@ task generateEnvFile {
             new File(volumesPath).mkdirs()
         }
         // DB Resource Limits
-        def DB_BASE_MEM_MB = getTypedProp("db.base.memory.mb") ?: 256
-        def DB_BASE_CPU = getTypedProp("db.base.cpu") ?: 1.0
-
         def dbServiceFactors = [
             DB: [mem: 1.0, cpu: 1.0]  // Default 256Mb - 1 Cpu
         ]
-        dbServiceFactors.each { service, factors ->
-            def memMB = (DB_BASE_MEM_MB * factors.mem).toInteger()
-            def cpu = ((DB_BASE_CPU * factors.cpu) as BigDecimal).setScale(3, BigDecimal.ROUND_HALF_UP).toString()
-
-            upsertEnvProperty("BASE_${service}_MEMORY_LIMIT", "${memMB}M")
-            upsertEnvProperty("BASE_${service}_CPU_LIMIT", "${cpu}")
+        def DB_BASE_MEM_MB = getTypedProp("db.base.memory.mb")
+        if (DB_BASE_MEM_MB != null) {
+            dbServiceFactors.each { service, factors ->
+                def memMB = (DB_BASE_MEM_MB * factors.mem).toInteger()
+                upsertEnvProperty("BASE_${service}_MEMORY_LIMIT", "${memMB}M")
+            }
+        }
+        def DB_BASE_CPU = getTypedProp("db.base.cpu")
+        if (DB_BASE_CPU != null) {
+            dbServiceFactors.each { service, factors ->
+                def cpu = ((DB_BASE_CPU * factors.cpu) as BigDecimal).setScale(1, BigDecimal.ROUND_HALF_UP).toString()
+                upsertEnvProperty("BASE_${service}_CPU_LIMIT", "${cpu}")
+            }
         }
         println "Generated .env file at: $env"
 
@@ -325,7 +329,7 @@ task "resources.up" {
     dependsOn copyComposeFiles
 
     doLast {
-        executeDockerComposeCommand('up -d')
+        executeDockerComposeCommand('up -d --build')
     }
 }
 
