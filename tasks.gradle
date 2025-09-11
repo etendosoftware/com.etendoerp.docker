@@ -78,6 +78,29 @@ ext.getTypedProp = { String key->
     return s
 }
 
+ext.hostURL = { ->
+    if (Os.isFamily(Os.FAMILY_UNIX)) {
+        def outsideIP = 'ip addr show | grep "\\binet\\b.*\\bdocker0\\b" | awk \'{print $2}\' | cut -d "/" -f 1'
+
+        def process = ["bash", "-c", outsideIP].execute()
+
+        def output = new StringBuffer()
+        def error = new StringBuffer()
+
+        process.consumeProcessOutput(output, error)
+        process.waitFor()
+        if (error.toString().trim() || process.exitValue() != 0) {
+            throw new GradleException("Error getting Docker subnet: ${error.toString()}")
+        }
+        project.logger.info("Outside IP: ${output.toString().trim()}")
+        return "${output.toString().trim()}"
+
+    } else {
+        project.logger.info("Outside IP: host.docker.internal")
+        return "host.docker.internal"
+    }
+}
+
 /**
  * Retrieves legacy properties from a configuration file located in the project's config directory.
  * The configuration file is "Openbravo.properties".
@@ -184,7 +207,7 @@ task generateEnvFile {
         def DB_BASE_CPU = getTypedProp("db.base.cpu") ?: 1.0
 
         def dbServiceFactors = [
-            DB: [mem: 1.0, cpu: 1.0]  // Default 256Mb - 1 Cpu
+                DB: [mem: 1.0, cpu: 1.0]  // Default 256Mb - 1 Cpu
         ]
         dbServiceFactors.each { service, factors ->
             def memMB = (DB_BASE_MEM_MB * factors.mem).toInteger()
@@ -237,7 +260,7 @@ task copyComposeFiles {
         }
 
         destDir.eachFileMatch(~/.*\.yml/) { file ->
-            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
+            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : hostURL())
         }
 
     }
