@@ -27,8 +27,8 @@ ext.envFile = { ->
 /**
  * Inserts or updates a key=value line in a .env file.
  *
- * @param key       String  – name of the property (e.g. 'OTEL_CONFIG_ENABLE')
- * @param value     Object  – value you want to set (e.g. 'true')
+ * @param key String  – name of the property (e.g. 'OTEL_CONFIG_ENABLE')
+ * @param value Object  – value you want to set (e.g. 'true')
  */
 ext.upsertEnvProperty = { String key, Object value ->
     def envFile = envFile().envFile
@@ -50,10 +50,10 @@ ext.upsertEnvProperty = { String key, Object value ->
  * Lookup a project property by name and coerce it into
  * Boolean, Integer, BigDecimal, or String as appropriate.
  *
- * @param key  the property name
- * @return     typed value (Boolean, Integer, BigDecimal, or String), or null if absent
+ * @param key the property name
+ * @return typed value (Boolean, Integer, BigDecimal, or String), or null if absent
  */
-ext.getTypedProp = { String key->
+ext.getTypedProp = { String key ->
     if (!project.hasProperty(key)) {
         return null
     }
@@ -76,29 +76,6 @@ ext.getTypedProp = { String key->
     }
     // fallback to string
     return s
-}
-
-ext.hostURL = { ->
-    if (Os.isFamily(Os.FAMILY_UNIX)) {
-        def outsideIP = 'ip addr show | grep "\\binet\\b.*\\bdocker0\\b" | awk \'{print $2}\' | cut -d "/" -f 1'
-
-        def process = ["bash", "-c", outsideIP].execute()
-
-        def output = new StringBuffer()
-        def error = new StringBuffer()
-
-        process.consumeProcessOutput(output, error)
-        process.waitFor()
-        if (error.toString().trim() || process.exitValue() != 0) {
-            throw new GradleException("Error getting Docker subnet: ${error.toString()}")
-        }
-        project.logger.info("Outside IP: ${output.toString().trim()}")
-        return "${output.toString().trim()}"
-
-    } else {
-        project.logger.info("Outside IP: host.docker.internal")
-        return "host.docker.internal"
-    }
 }
 
 /**
@@ -260,7 +237,7 @@ task copyComposeFiles {
         }
 
         destDir.eachFileMatch(~/.*\.yml/) { file ->
-            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : hostURL())
+            file.text = file.text.replace('{CONFIG_URL}', isTomcatEnabled ? "tomcat" : "host.docker.internal")
         }
 
     }
