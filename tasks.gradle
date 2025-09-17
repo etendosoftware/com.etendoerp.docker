@@ -246,6 +246,52 @@ task copyComposeFiles {
 
     }
 }
+ext.executeDockerCommand = { String shellCmd ->
+    println "Checking if Docker is running..."
+
+    def dockerRunning = false
+    try {
+        def process = new ProcessBuilder("docker", "info")
+                .redirectErrorStream(true)
+                .start()
+        if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+            println "Docker command timed out, assuming Docker is not running."
+            process.destroyForcibly()
+        } else if (process.exitValue() == 0) {
+            dockerRunning = true
+        }
+    } catch (Exception e) {
+        println "Error checking Docker: ${e.message}"
+    }
+    if (!dockerRunning) {
+        throw new GradleException("Docker is not running. Please start the Docker service.")
+    }
+    def output = new ByteArrayOutputStream()
+    println "⚙️ Executing Docker command: ${shellCmd}"
+    def osCmd = Os.isFamily(Os.FAMILY_WINDOWS)
+      ? ['cmd','/c', shellCmd]
+      : ['bash','-lc', shellCmd]
+    def result = exec {
+        commandLine osCmd
+        standardOutput = output
+        errorOutput = output
+        ignoreExitValue = true
+    }
+    if (result.exitValue != 0) {
+        throw new GradleException("The command fails:\n" + output.toString())
+    }
+    // store in build/compose/logs the output of the last successful command
+    def logsDir = file("$composeDir/logs")
+    if (!logsDir.exists()) {
+        logsDir.mkdirs()
+    }
+    // get current timestamp to add it to the log file name
+    def timestamp = new Date().format("yyyyMMdd_HHmmss")
+    // create the log file with the timestamp
+    def logFile = file("$logsDir/build-timestamp-${timestamp}.log")
+    logFile.text = output.toString()
+    println output.toString()
+}
 
 ext.executeDockerComposeCommand = { String action ->
     def composeFiles = fileTree(dir: composeDir, include: '*.yml').files
@@ -330,6 +376,7 @@ task "resources.up" {
 
     doLast {
         executeDockerComposeCommand('up -d --build')
+        executeDockerCommand('docker image prune -f')
     }
 }
 
@@ -360,6 +407,7 @@ task "resources.build" {
 
     doLast {
         executeDockerComposeCommand('build --no-cache')
+        executeDockerCommand('docker image prune -f')
     }
 }
 
@@ -370,7 +418,7 @@ afterEvaluate {
     tasks.named("compile.complete").configure { task ->
         task.dependsOn("copyComposeFiles")
     }
-    tasks.named("resources.up").configure {
-        mustRunAfter("resources.build")
+    tasks.named("resources.build").configure {
+        finalizedBy("resources.up")
     }
 }
