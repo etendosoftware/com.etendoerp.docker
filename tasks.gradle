@@ -27,8 +27,8 @@ ext.envFile = { ->
 /**
  * Inserts or updates a key=value line in a .env file.
  *
- * @param key       String  – name of the property (e.g. 'OTEL_CONFIG_ENABLE')
- * @param value     Object  – value you want to set (e.g. 'true')
+ * @param key String  – name of the property (e.g. 'OTEL_CONFIG_ENABLE')
+ * @param value Object  – value you want to set (e.g. 'true')
  */
 ext.upsertEnvProperty = { String key, Object value ->
     def envFile = envFile().envFile
@@ -50,10 +50,10 @@ ext.upsertEnvProperty = { String key, Object value ->
  * Lookup a project property by name and coerce it into
  * Boolean, Integer, BigDecimal, or String as appropriate.
  *
- * @param key  the property name
- * @return     typed value (Boolean, Integer, BigDecimal, or String), or null if absent
+ * @param key the property name
+ * @return typed value (Boolean, Integer, BigDecimal, or String), or null if absent
  */
-ext.getTypedProp = { String key->
+ext.getTypedProp = { String key ->
     if (!project.hasProperty(key)) {
         return null
     }
@@ -181,7 +181,7 @@ task generateEnvFile {
         }
         // DB Resource Limits
         def dbServiceFactors = [
-            DB: [mem: 1.0, cpu: 1.0]  // Default 256Mb - 1 Cpu
+                DB: [mem: 1.0, cpu: 1.0]  // Default 256Mb - 1 Cpu
         ]
         def DB_BASE_MEM_MB = getTypedProp("db.base.memory.mb")
         if (DB_BASE_MEM_MB != null) {
