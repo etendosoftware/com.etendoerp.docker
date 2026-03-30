@@ -65,7 +65,7 @@ spec:
       emptyDir: {}           # local cache images for dind
   containers:
     - name: compiler
-      image: etendo/compiler_jenkins:1.0.6
+      image: etendo/compiler_jenkins:1.0.7
       env:
         - name: DOCKER_HOST
           value: tcp://localhost:2375
