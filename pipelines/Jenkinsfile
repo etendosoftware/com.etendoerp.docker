@@ -26,7 +26,7 @@ pipeline {
     DOCKER_MODULE_URL = 'https://github.com/etendosoftware/com.etendoerp.docker'
 
     TOMCAT_URL      = 'https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.98/bin/apache-tomcat-9.0.98.tar.gz'
-    JAVA_HOME       = '/usr/lib/jvm/java-11-openjdk-amd64'
+    JAVA_HOME       = '/usr/lib/jvm/java-17-openjdk-amd64'
     MODULE_PACKAGE  = 'com.etendoerp.docker'
     ETENDO_BASE     = 'etendo_base'
 
@@ -207,7 +207,7 @@ spec:
               db.base.memory.mb=10240
               org.gradle.jvmargs=-Dfile.encoding=UTF-8
               org.gradle.daemon=false
-              java.version=11" > gradle.properties
+              java.version=17" > gradle.properties
               """
 
               echo '---------------- Add dependencies ----------------'
