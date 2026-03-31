@@ -33,9 +33,11 @@ spec:
         requests:
           cpu: 1072m
           memory: 4000Mi
+          ephemeral-storage: 1Gi
         limits:
           cpu: 2072m
           memory: 6500Mi
+          ephemeral-storage: 5Gi
       volumeMounts:
         - name: rsa-keys
           mountPath: /root/.ssh/
@@ -61,6 +63,15 @@ spec:
       args:
         - --mtu=1450
         - --storage-driver=overlay2
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1000Mi
+          ephemeral-storage: 1Gi
+        limits:
+          cpu: 1000m
+          memory: 2000Mi
+          ephemeral-storage: 5Gi
       volumeMounts:
         - name: dind-storage
           mountPath: /var/lib/docker
@@ -69,4 +80,5 @@ spec:
   dnsPolicy: ClusterFirst
   serviceAccountName: default
   serviceAccount: default
+  automountServiceAccountToken: false
   securityContext: {}
