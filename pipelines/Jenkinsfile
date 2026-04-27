@@ -22,11 +22,12 @@ pipeline {
     COMMIT_AUTHOR_NAME  = sh(returnStdout: true, script: "git log -1 --pretty=format:'%an'").trim()
     COMMIT_AUTHOR_EMAIL = sh(returnStdout: true, script: "git log -1 --pretty=format:'%ae'").trim()
 
-    ETENDO_BASE_URL   = 'https://github.com/etendosoftware/etendo_base'
-    DOCKER_MODULE_URL = 'https://github.com/etendosoftware/com.etendoerp.docker'
+    ETENDO_CORE_URL    = 'https://github.com/etendosoftware/etendo_core'
+    CORE_DISCOVERY_URL = 'https://github.com/etendosoftware/etendo_core'
+    DOCKER_MODULE_URL  = 'https://github.com/etendosoftware/com.etendoerp.docker'
 
     MODULE_PACKAGE = 'com.etendoerp.docker'
-    ETENDO_BASE    = 'etendo_base'
+    ETENDO_CORE    = 'etendo_core'
 
     COMMIT_INPROGRESS_STATUS = 'pending'
     COMMIT_SUCCESS_STATUS    = 'success'
@@ -39,7 +40,11 @@ pipeline {
     TRUE  = 'true'
     FALSE = 'false'
 
-    MAIN_BRANCH = 'main'
+    MAIN_BRANCH      = 'main'
+    DEVELOP_BRANCH   = 'develop'
+
+    JIRA_ACCESS_TOKEN = credentials('jira-access-token')
+    JIRA_BASE_URL     = credentials('jira-url')
 
     // Stack variables — configure these in the Jenkins job environment, not here:
     //   JAVA_HOME_DEFAULT, JAVA_HOME_BACKPORT
@@ -99,26 +104,37 @@ pipeline {
         container('compiler') {
           script {
             try {
-              echo '---------------- Determining branch type ----------------'
-              env.FROM_BACKPORT = FALSE
-              if (env.GIT_BRANCH.contains('-Y') || env.GIT_BRANCH.startsWith('release')) {
-                env.FROM_BACKPORT = TRUE
-              }
+              echo '---------------- Resolving Etendo core branch ----------------'
+              def rootDir = pwd()
+              def branchResolver = load "${rootDir}/pipelines/utils/branchResolver.groovy"
+              def branchResolution = branchResolver.resolveBranch(env.GIT_BRANCH)
+
+              env.FROM_BACKPORT      = branchResolution.fromBackport
+              env.BASE_BRANCH        = branchResolution.baseBranch
+              env.PREFERRED_BRANCH   = branchResolution.preferredBranch ?: ''
+              env.EPIC_BRANCH        = branchResolution.epicBranch ?: ''
+
+              echo "Resolution reason:    ${branchResolution.reason}"
+              echo "Preferred Branch:     ${env.PREFERRED_BRANCH ?: '<none>'}"
+              echo "Epic Branch:          ${env.EPIC_BRANCH ?: '<none>'}"
+              echo "Base Branch:          ${env.BASE_BRANCH}"
+              echo "From Backport:        ${env.FROM_BACKPORT}"
 
               echo '---------------- Resolving stack configuration ----------------'
-              def rootDir = pwd()
               def stackConfig = load "${rootDir}/pipelines/utils/stackConfig.groovy"
               def stackConfiguration = stackConfig.resolveStackConfiguration(env.FROM_BACKPORT)
 
-              env.JAVA_HOME           = stackConfiguration.javaHome
-              env.TOMCAT_URL          = stackConfiguration.tomcatUrl
+              env.JAVA_HOME            = stackConfiguration.javaHome
+              env.TOMCAT_URL           = stackConfiguration.tomcatUrl
               env.NEXT_CLASSIC_VERSION = stackConfiguration.nextClassicVersion
-              env.BASE_CORE_VERSION   = stackConfiguration.baseCoreVersion
-              env.STACK_TYPE          = stackConfiguration.stackType
+              env.BASE_CORE_VERSION    = stackConfiguration.baseCoreVersion
+              env.STACK_TYPE           = stackConfiguration.stackType
 
-              env.BASE_BRANCH = env.MAIN_BRANCH
-              if (env.FROM_BACKPORT == TRUE) {
-                env.BASE_BRANCH = env.BACKPORT_BRANCH
+              if (!env.BASE_CORE_VERSION?.trim()) {
+                error('BASE_CORE_VERSION is not configured')
+              }
+              if (!env.NEXT_CLASSIC_VERSION?.trim()) {
+                error('NEXT_CLASSIC_VERSION is not configured')
               }
 
               echo "Stack Type:           ${env.STACK_TYPE}"
@@ -157,16 +173,24 @@ pipeline {
             try {
               sh "./pipelines/utils/build-update.sh ${MODULE_PACKAGE} ${COMMIT_INPROGRESS_STATUS} \"Starting build\" ${ACCESS_TOKEN} ${GIT_COMMIT} ${BUILD_URL} \"${CONTEXT_BUILD}\""
 
-              echo '--------------- Building Etendo environment ----------------'
-              sh "git clone ${ETENDO_BASE_URL}"
+              echo '--------------- Building Etendo Core environment ----------------'
+              sh "git clone ${ETENDO_CORE_URL}"
 
               def rootDir = pwd()
               def stackConfig = load "${rootDir}/pipelines/utils/stackConfig.groovy"
               def javaVersion = stackConfig.getJavaVersionNumber()
 
               sh """
-              cd ${ETENDO_BASE}
+              cd ${ETENDO_CORE}
               git checkout ${env.BASE_BRANCH}
+              if [ -n "${env.EPIC_BRANCH}" ]; then
+                git checkout ${env.EPIC_BRANCH} || echo "Epic branch ${env.EPIC_BRANCH} not found in ${ETENDO_CORE}; continuing with current branch"
+              fi
+              if [ -n "${env.PREFERRED_BRANCH}" ]; then
+                git checkout ${env.PREFERRED_BRANCH} || echo "Preferred branch ${env.PREFERRED_BRANCH} not found in ${ETENDO_CORE}; continuing with current branch"
+              fi
+
+              echo "Using Etendo core branch: \\$(git rev-parse --abbrev-ref HEAD)"
 
               echo "\n
               context.name=${CONTEXT_NAME}
@@ -196,7 +220,7 @@ pipeline {
                 }
               """
               sh """
-              cd ${ETENDO_BASE}
+              cd ${ETENDO_CORE}
               echo '${buildGradleContent}' >> build.gradle
               """
 
@@ -213,7 +237,7 @@ pipeline {
 
               echo '---------------- Build & Compile ----------------'
               sh """
-                cd ${ETENDO_BASE}
+                cd ${ETENDO_CORE}
                 mkdir -p modules
                 cd modules
                 git clone ${DOCKER_MODULE_URL}.git
@@ -229,7 +253,7 @@ pipeline {
                 script: "docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' etendo-db-1",
                 returnStdout: true
               ).trim()
-              def confFile = "${ETENDO_BASE}/gradle.properties"
+              def confFile = "${ETENDO_CORE}/gradle.properties"
               sh """
                 echo Postgres IP: ${pgIp}
                 if grep -q '^bbdd.url=' ${confFile}; then
@@ -237,7 +261,7 @@ pipeline {
                 else
                   echo "bbdd.url=jdbc:postgresql://${pgIp}:${BBDD_PORT}" >> ${confFile}
                 fi
-                cd ${ETENDO_BASE}
+                cd ${ETENDO_CORE}
                 ./gradlew setup
               """
 
@@ -251,7 +275,7 @@ pipeline {
               echo 'Docker Containers are running'
 
               sh """
-                cd ${ETENDO_BASE}
+                cd ${ETENDO_CORE}
                 ./gradlew install
                 ./gradlew smartbuild -PignoreConsistency=true
               """
@@ -292,7 +316,7 @@ pipeline {
               sh "${WORKSPACE}/${env.TOMCAT_FOLDER}/bin/catalina.sh stop"
 
               sh """
-              cd ${ETENDO_BASE}
+              cd ${ETENDO_CORE}
               ./gradlew resources.stop
               """
 
@@ -319,10 +343,10 @@ pipeline {
     always {
       container('compiler') {
         script {
-          echo '---------------- Cleaning up Etendo environment ----------------'
+          echo '---------------- Cleaning up Etendo Core environment ----------------'
           try {
             sh """
-              cd ${ETENDO_BASE}
+              cd ${ETENDO_CORE}
               ./gradlew resources.down
             """
           } catch (Exception e) {
