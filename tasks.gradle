@@ -1,9 +1,17 @@
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
+
+interface ExecOperationsProvider {
+    @Inject
+    ExecOperations getExecOperations()
+}
 
 ext.composeDir = layout.buildDirectory.dir("compose").get().asFile.path
 ext.composeFilesPattern = '**/compose/*.yml'
 def propertiesFile = 'gradle.properties'
 def dockerCommandUpBuild = 'up -d --build'
+def execOperations = project.objects.newInstance(ExecOperationsProvider).execOperations
 
 ext.isBBDDEnabled = project.hasProperty("docker_com.etendoerp.docker_db") ? project.property("docker_com.etendoerp.docker_db").toBoolean() : false
 ext.isTomcatEnabled = project.hasProperty("docker_com.etendoerp.tomcat") ? project.property("docker_com.etendoerp.tomcat").toBoolean() : false
@@ -272,7 +280,7 @@ ext.executeDockerCommand = { String shellCmd ->
     def osCmd = Os.isFamily(Os.FAMILY_WINDOWS)
       ? ['cmd','/c', shellCmd]
       : ['bash','-lc', shellCmd]
-    def result = exec {
+    def result = execOperations.exec {
         commandLine osCmd
         standardOutput = output
         errorOutput = output
@@ -348,7 +356,7 @@ ext.executeDockerComposeCommand = { String action ->
         os_cmd = ['sh', "$composeDir/.last-command"]
     }
     def outputStream = new ByteArrayOutputStream()
-    def result = exec {
+    def result = execOperations.exec {
         commandLine os_cmd
         standardOutput = outputStream
         errorOutput = outputStream
