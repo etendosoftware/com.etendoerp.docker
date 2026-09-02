@@ -29,6 +29,32 @@ Execute:
 ./gradlew resources.up
 ```
 
+### Local pgvector database
+
+The database image and data directory are configurable via `etendo.db.image` and
+`etendo.db.data.directory` (declared in `config.gradle`, defaults `postgres:16` and `db`).
+Set them in the root `gradle.properties` — **not as `-P` command-line flags**: `resources.up`
+generates `.env` from the `gradle.properties` file on disk (`generateEnvFile` in
+`tasks.gradle`), so a `-P` override never reaches the Docker Compose environment.
+
+```properties
+# gradle.properties
+etendo.db.image=pgvector/pgvector:pg16
+etendo.db.data.directory=db-pgvector
+```
+
+Then run normally:
+
+```bash
+./gradlew resources.up
+```
+
+Use a new data directory to preserve any existing local database volume. The pgvector
+image makes the extension available but does not activate it in a database. Activation
+remains an explicit application operation. To return to the previous local database,
+stop the container, remove those two lines (or reset them to `postgres:16` and `db`)
+from `gradle.properties`, and run `resources.up` again.
+
 This command will search for all resources configured and start the containers.
 
 ## Stopping
@@ -50,6 +76,5 @@ Execute:
 ```
 
 This command will stop and remove all containers.
-
 
 
