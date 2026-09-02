@@ -14,6 +14,24 @@ config {
         group = "Docker"
     }
 
+    dbImage {
+        description = "PostgreSQL Docker image - Default: postgres:16"
+        value = "postgres:16"
+        name = "etendo.db.image"
+        sensitive = false
+        required = false
+        group = "Docker"
+    }
+
+    dbDataDirectory {
+        description = "Database directory below volumes.path - Default: db"
+        value = "db"
+        name = "etendo.db.data.directory"
+        sensitive = false
+        required = false
+        group = "Docker"
+    }
+
     tomcatPort {
         description = "Tomcat port - Default: 8080"
         value = "8080"
